@@ -16,6 +16,7 @@ const listMatters = vi.fn()
 const createAttorneyOwnedCase = vi.fn()
 const finalizeAttorneyCases = vi.fn()
 const findExistingImportedCase = vi.fn()
+const createExternalWriteProposal = vi.fn()
 
 vi.mock('./registry', () => ({
   getConnector: (provider: string) =>
@@ -34,6 +35,11 @@ vi.mock('../attorney-case-factory', () => ({
   createAttorneyOwnedCase: (...args: unknown[]) => createAttorneyOwnedCase(...args),
   finalizeAttorneyCases: (...args: unknown[]) => finalizeAttorneyCases(...args),
   findExistingImportedCase: (...args: unknown[]) => findExistingImportedCase(...args),
+}))
+
+vi.mock('../case-reconciliation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../case-reconciliation')>()),
+  createExternalWriteProposal: (...args: unknown[]) => createExternalWriteProposal(...args),
 }))
 
 import { prisma } from '../prisma'
@@ -89,6 +95,8 @@ beforeEach(() => {
   createAttorneyOwnedCase.mockResolvedValue({ assessmentId: 'asm-1', referenceCode: null })
   finalizeAttorneyCases.mockResolvedValue([])
   findExistingImportedCase.mockResolvedValue(null)
+  createExternalWriteProposal.mockResolvedValue({ id: 'proposal-1' })
+  vi.mocked(prisma.externalWriteProposal.findMany).mockResolvedValue([])
   vi.mocked(prisma.attorney.findUnique).mockResolvedValue({ id: 'att-1', barState: 'CA' } as any)
   vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-1', barState: 'CA' } as any)
 })
@@ -237,6 +245,78 @@ describe('what it refuses to import', () => {
     expect(createAttorneyOwnedCase).not.toHaveBeenCalled()
     expect(result.imported).toBe(0)
     expect(result.skipped[0].reason).toBe('duplicate')
+  })
+
+  it('sends changed values on an existing matter to firm review', async () => {
+    findExistingImportedCase.mockResolvedValue({ id: 'asm-existing' })
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      claimType: 'auto',
+      venueState: 'CA',
+      venueCounty: 'Orange',
+      facts: JSON.stringify({
+        incident: { date: '2026-03-04', narrative: 'Old description' },
+      }),
+      revision: 4,
+    } as any)
+    onePage([matter({ description: 'Updated description', venueCounty: 'Los Angeles' })])
+
+    const result = await syncConnectionInbound({ connectionId: 'conn-1' })
+
+    expect(createAttorneyOwnedCase).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ imported: 0, mattersWithUpdates: 1, updatesProposed: 2 })
+    expect(createExternalWriteProposal).toHaveBeenCalledTimes(2)
+    expect(createExternalWriteProposal.mock.calls.map((call) => call[0].field)).toEqual([
+      'venueCounty',
+      'facts:incident.narrative',
+    ])
+    expect(createExternalWriteProposal.mock.calls[0][0]).toMatchObject({
+      assessmentId: 'asm-existing',
+      connectionId: 'conn-1',
+      provider: 'clio',
+      baseRevision: 4,
+    })
+  })
+
+  it('does not recreate an identical pending reconciliation proposal', async () => {
+    findExistingImportedCase.mockResolvedValue({ id: 'asm-existing' })
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      claimType: 'auto',
+      venueState: 'CA',
+      venueCounty: null,
+      facts: JSON.stringify({
+        incident: { date: '2026-03-04', narrative: 'Old description' },
+      }),
+      revision: 4,
+    } as any)
+    vi.mocked(prisma.externalWriteProposal.findMany).mockResolvedValue([
+      { field: 'facts:incident.narrative', proposedValue: 'Updated description' },
+    ] as any)
+    onePage([matter({ description: 'Updated description' })])
+
+    const result = await syncConnectionInbound({ connectionId: 'conn-1' })
+
+    expect(createExternalWriteProposal).not.toHaveBeenCalled()
+    expect(result.updatesProposed).toBe(0)
+    expect(result.skipped[0].reason).toBe('duplicate')
+  })
+
+  it('previews changed values without creating proposals', async () => {
+    findExistingImportedCase.mockResolvedValue({ id: 'asm-existing' })
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      claimType: 'auto',
+      venueState: 'CA',
+      venueCounty: null,
+      facts: JSON.stringify({
+        incident: { date: '2026-03-04', narrative: 'Old description' },
+      }),
+      revision: 4,
+    } as any)
+    onePage([matter({ description: 'Updated description' })])
+
+    const result = await syncConnectionInbound({ connectionId: 'conn-1', dryRun: true })
+
+    expect(result).toMatchObject({ mattersWithUpdates: 1, updatesProposed: 1 })
+    expect(createExternalWriteProposal).not.toHaveBeenCalled()
   })
 
   it('keeps going when one matter fails to create', async () => {

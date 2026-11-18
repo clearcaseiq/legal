@@ -151,13 +151,13 @@ describe('how often a connection is read', () => {
     expect(args.orderBy).toEqual([{ lastSyncedAt: { sort: 'asc', nulls: 'first' } }])
   })
 
-  it('never sweeps a revoked connection', async () => {
+  it('only asks for connected connections', async () => {
     given([])
 
     await runInboundSyncSweep()
 
     const where = vi.mocked(prisma.cmsConnection.findMany).mock.calls[0][0]?.where as any
-    expect(where.status).toEqual({ not: 'revoked' })
+    expect(where.status).toBe('connected')
   })
 
   /**

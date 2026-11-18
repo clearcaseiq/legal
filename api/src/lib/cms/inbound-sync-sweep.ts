@@ -76,7 +76,7 @@ const EMPTY: InboundSyncSweepResult = {
 async function dueConnections(now: number) {
   const candidates = await prisma.cmsConnection.findMany({
     where: {
-      status: { not: 'revoked' },
+      status: 'connected',
       OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: new Date(now - SYNC_INTERVAL_MS) } }],
     },
     // Never-synced first, then longest-waiting. A firm that has just connected

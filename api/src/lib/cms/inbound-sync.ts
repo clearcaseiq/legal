@@ -31,6 +31,8 @@ import {
   type AttorneyCaseOwner,
 } from '../attorney-case-factory'
 import { runImportedCaseIntakeHooksForBatch } from '../intake-acquire'
+import { parseCaseFacts } from '../case-facts'
+import { createExternalWriteProposal, factField } from '../case-reconciliation'
 import { buildAuthContext, getConnection, getValidAccessToken } from './connections'
 import { getConnector } from './registry'
 import { supportsInboundSync, type CmsInboundMatter } from './types'
@@ -56,6 +58,10 @@ export interface InboundSyncResult {
   provider: string
   dryRun: boolean
   imported: number
+  /** Existing matters whose changed fields were sent to firm review. */
+  mattersWithUpdates: number
+  /** Individual field changes sent to firm review. */
+  updatesProposed: number
   /** Created case ids. Empty on a dry run. */
   assessmentIds: string[]
   skipped: InboundSkippedMatter[]
@@ -190,13 +196,14 @@ async function logSync(args: {
   status: 'success' | 'error' | 'skipped'
   externalId: string
   message?: string | null
+  operation?: 'import_matter' | 'reconcile_matter'
 }) {
   await prisma.cmsSyncLog.create({
     data: {
       connectionId: args.connectionId,
       assessmentId: args.assessmentId ?? null,
       direction: 'inbound',
-      operation: 'import_matter',
+      operation: args.operation ?? 'import_matter',
       status: args.status,
       externalType: 'matter',
       externalId: args.externalId,
@@ -249,6 +256,8 @@ export async function syncConnectionInbound(options: InboundSyncOptions): Promis
     provider: connection.provider,
     dryRun,
     imported: 0,
+    mattersWithUpdates: 0,
+    updatesProposed: 0,
     assessmentIds: [],
     skipped: [],
     pagesFetched: 0,
@@ -387,9 +396,29 @@ async function importOneMatter(
 
   const existing = await findExistingImportedCase(input, owner)
   if (existing) {
-    // Reported but not logged: on an incremental sync most matters are
-    // already-seen, and a log row each would bury the rows that matter.
-    result.skipped.push({ externalId: matter.externalId, reason: 'duplicate', label })
+    const proposed = await reconcileExistingMatter(existing.id, input, matter, {
+      connectionId,
+      provider: result.provider,
+      dryRun,
+    })
+    if (proposed > 0) {
+      result.mattersWithUpdates += 1
+      result.updatesProposed += proposed
+      if (!dryRun) {
+        await logSync({
+          connectionId,
+          assessmentId: existing.id,
+          status: 'success',
+          operation: 'reconcile_matter',
+          externalId: matter.externalId,
+          message: `${proposed} changed field${proposed === 1 ? '' : 's'} sent for firm review`,
+        })
+      }
+    } else {
+      // Reported but not logged: on an incremental sync most matters are
+      // already-seen, and a log row each would bury the rows that matter.
+      result.skipped.push({ externalId: matter.externalId, reason: 'duplicate', label })
+    }
     return
   }
 
@@ -414,6 +443,87 @@ async function importOneMatter(
     const message = error instanceof Error ? error.message : String(error)
     await skip('error', message)
   }
+}
+
+async function reconcileExistingMatter(
+  assessmentId: string,
+  input: AttorneyCaseInput,
+  matter: CmsInboundMatter,
+  ctx: { connectionId: string; provider: string; dryRun: boolean },
+): Promise<number> {
+  const current = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    select: {
+      claimType: true,
+      venueState: true,
+      venueCounty: true,
+      facts: true,
+      revision: true,
+    },
+  })
+  if (!current) return 0
+
+  const facts = parseCaseFacts(current.facts)
+  const pending = await prisma.externalWriteProposal.findMany({
+    where: {
+      assessmentId,
+      connectionId: ctx.connectionId,
+      source: 'cms_inbound',
+      status: 'pending',
+    },
+    select: { field: true, proposedValue: true },
+  })
+  const pendingValues = new Map(
+    pending.map((proposal) => [proposal.field, normalizedValue(proposal.proposedValue)]),
+  )
+  const candidates = [
+    { field: 'claimType', current: current.claimType, proposed: input.claimType },
+    { field: 'venueState', current: current.venueState, proposed: input.venueState },
+    {
+      field: 'venueCounty',
+      current: current.venueCounty,
+      proposed: input.venueCounty ?? null,
+    },
+    {
+      field: factField('incident.date'),
+      current: scalarValue(facts?.incident?.date),
+      proposed: input.incidentDate,
+    },
+    {
+      field: factField('incident.narrative'),
+      current: scalarValue(facts?.incident?.narrative),
+      proposed: input.narrative || null,
+    },
+  ].filter((candidate) => {
+    const proposed = normalizedValue(candidate.proposed)
+    return normalizedValue(candidate.current) !== proposed && pendingValues.get(candidate.field) !== proposed
+  })
+
+  if (ctx.dryRun) return candidates.length
+
+  for (const candidate of candidates) {
+    await createExternalWriteProposal({
+      assessmentId,
+      field: candidate.field,
+      proposedValue: candidate.proposed,
+      source: 'cms_inbound',
+      connectionId: ctx.connectionId,
+      provider: ctx.provider,
+      baseRevision: current.revision,
+    })
+  }
+
+  return candidates.length
+}
+
+function scalarValue(value: unknown): string | null {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
+    : null
+}
+
+function normalizedValue(value: unknown): string {
+  return value == null ? '' : String(value).trim()
 }
 
 function safeJson(text: string): Record<string, unknown> | null {

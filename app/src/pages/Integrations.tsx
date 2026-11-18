@@ -12,13 +12,22 @@ import {
   Copy,
   Check,
   Plus,
+  Database,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import {
+  createDataExport,
   connectCmsProvider,
   disconnectCmsConnection,
+  downloadDataExport,
   getCmsConnectionLogs,
   getCmsConnections,
+  getIntegrationAccess,
   getCmsProviders,
+  listDataExports,
+  type DataExportView,
+  type IntegrationAccess,
   type CmsConnectionView,
   type CmsProviderMeta,
   type CmsSyncLogView,
@@ -31,6 +40,7 @@ import {
   rejectReconciliationProposal,
   revokeSyncKey,
   type ReconciliationProposal,
+  type SyncApiScope,
   type SyncApiKeyView,
 } from '../lib/api-sync'
 
@@ -52,20 +62,28 @@ export default function Integrations() {
   const [syncKeys, setSyncKeys] = useState<SyncApiKeyView[]>([])
   const [busyProposal, setBusyProposal] = useState<string | null>(null)
   const [newKeyModal, setNewKeyModal] = useState(false)
+  const [access, setAccess] = useState<IntegrationAccess | null>(null)
+  const [exports, setExports] = useState<DataExportView[]>([])
+  const [exportBusy, setExportBusy] = useState<string | null>(null)
+  const [incrementalCursor, setIncrementalCursor] = useState('')
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [p, c, pr, k] = await Promise.all([
+      const resolvedAccess = await getIntegrationAccess()
+      setAccess(resolvedAccess)
+      const [p, c, pr, k, exportRuns] = await Promise.all([
         getCmsProviders(),
         getCmsConnections(),
         listReconciliationProposals().catch(() => []),
-        listSyncKeys().catch(() => []),
+        resolvedAccess.canManageIntegrations ? listSyncKeys() : Promise.resolve([]),
+        resolvedAccess.canManageIntegrations ? listDataExports() : Promise.resolve([]),
       ])
       setProviders(p)
       setConnections(c)
       setProposals(pr)
       setSyncKeys(k)
+      setExports(exportRuns)
     } catch {
       setBanner({ kind: 'error', text: 'Failed to load integrations.' })
     } finally {
@@ -76,6 +94,22 @@ export default function Integrations() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    if (!access?.canManageIntegrations || !exports.some((run) => run.status === 'queued' || run.status === 'building')) {
+      return
+    }
+    const timer = window.setInterval(() => {
+      void listDataExports().then(setExports).catch(() => undefined)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [access?.canManageIntegrations, exports])
+
+  useEffect(() => {
+    if (incrementalCursor) return
+    const latestCutoff = exports.find((run) => run.cutoff_cursor != null)?.cutoff_cursor
+    if (latestCutoff != null) setIncrementalCursor(String(latestCutoff))
+  }, [exports, incrementalCursor])
 
   // Surface the result of an OAuth round-trip (?cms_status=success|error).
   useEffect(() => {
@@ -171,6 +205,43 @@ export default function Integrations() {
     }
   }
 
+  const handleCreateExport = async (type: 'snapshot' | 'incremental') => {
+    const cursor = Number(incrementalCursor)
+    if (type === 'incremental' && (!Number.isInteger(cursor) || cursor < 0)) {
+      setBanner({ kind: 'error', text: 'Enter a valid non-negative change cursor.' })
+      return
+    }
+    setExportBusy(type)
+    try {
+      await createDataExport(type, type === 'incremental' ? cursor : undefined)
+      setExports(await listDataExports())
+      setBanner({ kind: 'success', text: `${type === 'snapshot' ? 'Full' : 'Incremental'} export queued.` })
+    } catch (e: any) {
+      setBanner({ kind: 'error', text: e?.response?.data?.error || 'Could not start the export.' })
+    } finally {
+      setExportBusy(null)
+    }
+  }
+
+  const handleDownloadExport = async (run: DataExportView) => {
+    setExportBusy(run.id)
+    try {
+      const blob = await downloadDataExport(run.id)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `clearcaseiq-${run.kind}-${run.id}.zip`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setBanner({ kind: 'error', text: e?.response?.data?.error || 'Could not download the export.' })
+    } finally {
+      setExportBusy(null)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-8 p-6">
       <header className="space-y-2">
@@ -186,6 +257,13 @@ export default function Integrations() {
           </div>
         </div>
       </header>
+
+      {access && !access.canManageIntegrations && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Integration settings and firm exports are managed by a firm administrator. You can still review connection
+          status and reconciliation items available to you.
+        </div>
+      )}
 
       {banner && (
         <div
@@ -236,14 +314,16 @@ export default function Integrations() {
                     >
                       <RefreshCw className="h-3.5 w-3.5" /> Sync log
                     </button>
-                    <button
-                      onClick={() => handleDisconnect(conn.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Disconnect
-                    </button>
+                    {access?.canManageIntegrations && (
+                      <button
+                        onClick={() => handleDisconnect(conn.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Disconnect
+                      </button>
+                    )}
                   </>
-                ) : (
+                ) : access?.canManageIntegrations ? (
                   <button
                     onClick={() => handleConnect(p)}
                     disabled={!p.configured && p.authType === 'oauth'}
@@ -251,6 +331,8 @@ export default function Integrations() {
                   >
                     Connect
                   </button>
+                ) : (
+                  <span className="text-xs text-gray-400">Firm admin required</span>
                 )}
                 {p.docsUrl && (
                   <a
@@ -335,6 +417,91 @@ export default function Integrations() {
         </div>
       </section>
 
+      {access?.canManageIntegrations && (
+        <>
+      {/* --- Firm data exports --------------------------------------------- */}
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+            <Database className="h-4 w-4" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Export firm data</h2>
+            <p className="text-sm text-gray-500">
+              Build a ZIP stored encrypted at rest with case records, evidence, checksums, and reconciliation details.
+              Downloads expire after seven days.
+            </p>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => void handleCreateExport('snapshot')}
+              disabled={exportBusy !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {exportBusy === 'snapshot' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
+              Full snapshot
+            </button>
+            <input
+              type="number"
+              min={0}
+              value={incrementalCursor}
+              onChange={(event) => setIncrementalCursor(event.target.value)}
+              placeholder="Change cursor"
+              aria-label="Incremental export change cursor"
+              className="w-36 rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+            />
+            <button
+              onClick={() => void handleCreateExport('incremental')}
+              disabled={exportBusy !== null || incrementalCursor === ''}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {exportBusy === 'incremental' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Incremental
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          {exports.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-gray-400">No exports yet.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {exports.map((run) => (
+                <li key={run.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium capitalize text-gray-900">{run.kind}</span>
+                      <ExportStatus status={run.status} />
+                    </div>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Requested {new Date(run.created_at).toLocaleString()}
+                      {run.cutoff_cursor != null ? ` · cursor ${run.cutoff_cursor}` : ''}
+                      {run.file_size ? ` · ${formatBytes(run.file_size)}` : ''}
+                    </p>
+                    {run.expires_at && run.status === 'ready' && (
+                      <p className="mt-0.5 text-[11px] text-gray-400">
+                        Expires {new Date(run.expires_at).toLocaleString()}
+                      </p>
+                    )}
+                    {run.error && <p className="mt-1 text-xs text-red-600">{run.error}</p>}
+                  </div>
+                  {run.status === 'ready' && (
+                    <button
+                      onClick={() => void handleDownloadExport(run)}
+                      disabled={exportBusy === run.id}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 px-3 py-1.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                    >
+                      {exportBusy === run.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      Download
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
       {/* --- Sync API keys -------------------------------------------------- */}
       <section className="space-y-4">
         <div className="flex items-center gap-3">
@@ -368,6 +535,8 @@ export default function Integrations() {
                       <span className="font-medium text-gray-900">{k.name}</span>
                       {k.revokedAt ? (
                         <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">Revoked</span>
+                      ) : k.expired ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Expired</span>
                       ) : (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Active</span>
                       )}
@@ -376,7 +545,9 @@ export default function Integrations() {
                     <p className="mt-0.5 text-[11px] text-gray-400">
                       Created {new Date(k.createdAt).toLocaleDateString()}
                       {k.lastUsedAt ? ` · last used ${new Date(k.lastUsedAt).toLocaleString()}` : ' · never used'}
+                      {k.expiresAt ? ` · expires ${new Date(k.expiresAt).toLocaleDateString()}` : ''}
                     </p>
+                    <p className="mt-1 text-[11px] text-gray-500">{k.scopes.join(' · ')}</p>
                   </div>
                   {!k.revokedAt && (
                     <button
@@ -392,6 +563,8 @@ export default function Integrations() {
           )}
         </div>
       </section>
+        </>
+      )}
 
       {newKeyModal && (
         <NewKeyModal
@@ -489,6 +662,27 @@ function CredentialModal({
   )
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function ExportStatus({ status }: { status: DataExportView['status'] }) {
+  const style = {
+    ready: 'bg-emerald-100 text-emerald-700',
+    queued: 'bg-blue-100 text-blue-700',
+    building: 'bg-blue-100 text-blue-700',
+    failed: 'bg-red-100 text-red-700',
+    expired: 'bg-gray-100 text-gray-600',
+  }[status]
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${style}`}>
+      {status === 'building' ? 'Building' : status.charAt(0).toUpperCase() + status.slice(1)}
+    </span>
+  )
+}
+
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <label className="block">
@@ -516,12 +710,14 @@ function NewKeyModal({
   const [saving, setSaving] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [scopes, setScopes] = useState<SyncApiScope[]>(['cases:read', 'changes:read'])
+  const [expiresInDays, setExpiresInDays] = useState(90)
 
   const submit = async () => {
-    if (!name.trim()) return
+    if (!name.trim() || scopes.length === 0) return
     setSaving(true)
     try {
-      const res = await createSyncKey(name.trim())
+      const res = await createSyncKey(name.trim(), scopes, expiresInDays)
       setToken(res.token)
       onCreated()
     } catch (e: any) {
@@ -571,9 +767,47 @@ function NewKeyModal({
         ) : (
           <div className="space-y-4">
             <Field label="Key name" value={name} onChange={setName} placeholder="e.g. Filevine production" />
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium text-gray-700">Permissions</legend>
+              <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+                {([
+                  ['cases:read', 'Read canonical cases'],
+                  ['changes:read', 'Read the change feed'],
+                  ['proposals:write', 'Propose case-field changes'],
+                  ['export:read', 'Create and download firm exports'],
+                ] as Array<[SyncApiScope, string]>).map(([scope, label]) => (
+                  <label key={scope} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={scopes.includes(scope)}
+                      onChange={(event) => setScopes((current) =>
+                        event.target.checked ? [...current, scope] : current.filter((value) => value !== scope)
+                      )}
+                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span>{label}</span>
+                    <code className="ml-auto text-[11px] text-gray-400">{scope}</code>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-gray-700">Expires</span>
+              <select
+                value={expiresInDays}
+                onChange={(event) => setExpiresInDays(Number(event.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value={30}>30 days</option>
+                <option value={90}>90 days</option>
+                <option value={180}>180 days</option>
+                <option value={365}>1 year</option>
+              </select>
+            </label>
+            {scopes.length === 0 && <p className="text-xs text-red-600">Select at least one permission.</p>}
             <div className="flex justify-end gap-2">
               <button onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-              <button onClick={submit} disabled={saving || !name.trim()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+              <button onClick={submit} disabled={saving || !name.trim() || scopes.length === 0} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
                 {saving ? 'Creating…' : 'Create key'}
               </button>
             </div>

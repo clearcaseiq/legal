@@ -5865,7 +5865,8 @@ model SyncApiKey {
   prefix          String    @unique
   // sha256 of the full token; the plaintext is shown once, at creation.
   tokenHash       String    @unique
-  scopes          String? // JSON array; reserved for future scoping
+  scopes          String? // JSON array of least-privilege scopes
+  expiresAt       DateTime?
   createdByUserId String?
   lastUsedAt      DateTime?
   revokedAt       DateTime?
@@ -5873,6 +5874,67 @@ model SyncApiKey {
 
   @@index([lawFirmId])
   @@map("sync_api_keys")
+}
+
+/// Durable, firm-scoped export job. Rows remain after artifact expiry so the
+/// request, reconciliation, and delivery activity stay auditable.
+model DataExportRun {
+  id                   String   @id @default(cuid())
+  lawFirmId            String
+  requestedByUserId    String?
+  requestedBySyncKeyId String?
+  kind                 String   @default("snapshot") // snapshot | incremental
+  sinceCursor          Int?
+  cutoffCursor         Int?
+  status               String   @default("queued") // queued | building | ready | failed | expired
+  attempts             Int      @default(0)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  failedAt             DateTime?
+  error                String?  @db.Text
+  rowCounts            String?  @db.Text
+  reconciliation       String?  @db.Text
+  filePath             String?
+  fileSize             Int?
+  contentHash          String?  @db.VarChar(64)
+  manifestHash         String?  @db.VarChar(64)
+  expiresAt            DateTime?
+  webhookUrl           String?
+  webhookSecret        String?  @db.Text
+  webhookEventId       String?  @unique
+  webhookStatus        String?
+  webhookAttempts      Int      @default(0)
+  webhookNextAttemptAt DateTime?
+  webhookDeliveredAt   DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  artifacts DataExportArtifact[]
+
+  @@index([lawFirmId, createdAt])
+  @@index([status, createdAt])
+  @@index([webhookStatus, webhookNextAttemptAt])
+  @@map("data_export_runs")
+}
+
+/// Per-dataset and per-evidence-file checksum ledger.
+model DataExportArtifact {
+  id          String        @id @default(cuid())
+  exportRunId String
+  exportRun   DataExportRun @relation(fields: [exportRunId], references: [id], onDelete: Cascade)
+  kind        String
+  sourceId    String?
+  archivePath String
+  rowCount    Int?
+  byteSize    Int
+  contentHash String        @db.VarChar(64)
+  status      String        @default("ready")
+  error       String?       @db.Text
+  createdAt   DateTime      @default(now())
+
+  @@unique([exportRunId, archivePath])
+  @@index([exportRunId, kind])
+  @@map("data_export_artifacts")
 }
 
 // Checksum ledger for controlled PostgreSQL changes that must run before the

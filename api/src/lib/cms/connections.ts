@@ -122,9 +122,17 @@ export async function getConnection(id: string) {
 }
 
 export async function disconnectConnection(id: string) {
+  const connection = await prisma.cmsConnection.findUnique({ where: { id } })
+  const config = connection ? readConfig(connection) : {}
   return prisma.cmsConnection.update({
     where: { id },
-    data: { status: 'disconnected', accessToken: null, refreshToken: null, tokenExpiresAt: null },
+    data: {
+      status: 'disconnected',
+      accessToken: null,
+      refreshToken: null,
+      tokenExpiresAt: null,
+      config: writeConfig({ ...config, inboundSyncEnabled: false }),
+    },
   })
 }
 

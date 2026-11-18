@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, Check, Download, Loader2, RefreshCw } from 'lucide-react'
 import {
   getCmsConnections,
+  getIntegrationAccess,
   runInboundSync,
   setInboundSyncEnabled,
   type CmsConnectionView,
@@ -42,9 +43,9 @@ const PROVIDER_LABELS: Record<string, string> = {
 /**
  * What a firm can actually do about each reason.
  *
- * `missing_incident_date` is the one that matters. Clio has no incident-date
- * field, so for a Clio caseload this is the common case rather than an edge
- * one, and the fix is in their CMS rather than here.
+ * `missing_incident_date` is the one that matters. Clio has no built-in
+ * incident-date field, so a firm needs a recognised custom field such as
+ * "Date of Loss" for those matters to import.
  */
 const SKIP_EXPLANATIONS: Record<InboundSkipReason, string> = {
   duplicate: 'Already imported',
@@ -74,6 +75,11 @@ export default function AttorneyDashboardCaseloadSync() {
 
   const load = useCallback(async () => {
     try {
+      const access = await getIntegrationAccess()
+      if (!access.canManageIntegrations) {
+        setConnections([])
+        return
+      }
       setConnections(await getCmsConnections())
     } catch {
       setConnections([])
@@ -84,7 +90,7 @@ export default function AttorneyDashboardCaseloadSync() {
     void load()
   }, [load])
 
-  const syncable = (connections || []).filter((c) => c.supportsInbound && c.status !== 'revoked')
+  const syncable = (connections || []).filter((c) => c.supportsInbound && c.status === 'connected')
 
   // Nothing connected that can be read from. Rendering an empty panel would
   // imply the firm is missing a setting rather than a connection.
@@ -126,7 +132,7 @@ export default function AttorneyDashboardCaseloadSync() {
         <div>
           <h4 className="text-sm font-semibold text-slate-900">Bring in your existing caseload</h4>
           <p className="text-xs text-slate-500">
-            Read matters straight out of your case management system, with documents.
+            Import matter and client details straight from your case management system. Documents are not imported.
           </p>
         </div>
       </div>
@@ -165,7 +171,7 @@ export default function AttorneyDashboardCaseloadSync() {
                       onChange={(e) => void toggle(connection, e.target.checked)}
                       className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                     />
-                    Keep this caseload in sync
+                    Import new matters automatically
                   </label>
                 </div>
 
@@ -191,7 +197,8 @@ export default function AttorneyDashboardCaseloadSync() {
                       Sync now
                     </button>
                     <span className="text-xs text-slate-500">
-                      New and changed matters are picked up automatically every few hours.
+                      New and changed matters are checked automatically every few hours. Changes to existing cases
+                      wait for firm review.
                     </span>
                   </div>
                 ) : (
@@ -239,12 +246,19 @@ function SyncSummary({ result }: { result: InboundSyncResult }) {
         {duplicates.length > 0 && (
           <span className="text-slate-500">{duplicates.length} already on file</span>
         )}
+        {result.updatesProposed > 0 && (
+          <span className="text-blue-700">
+            {result.dryRun ? 'Would send' : 'Sent'} {result.updatesProposed} update
+            {result.updatesProposed === 1 ? '' : 's'} across {result.mattersWithUpdates} case
+            {result.mattersWithUpdates === 1 ? '' : 's'} for review
+          </span>
+        )}
         {needsAttention.length > 0 && (
           <span className="text-amber-700">{needsAttention.length} need attention</span>
         )}
       </div>
 
-      {result.imported === 0 && needsAttention.length === 0 && (
+      {result.imported === 0 && result.updatesProposed === 0 && needsAttention.length === 0 && (
         <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
           <Check className="h-3.5 w-3.5 text-emerald-600" />
           Everything in your caseload is already here.

@@ -27,6 +27,7 @@ import { isGoogleAdsConfigured } from './lib/google-ads-conversions'
 import { runInboundSyncSweep, SYNC_INTERVAL_MS } from './lib/cms/inbound-sync-sweep'
 import { runEvidenceProcessingSweep } from './lib/evidence-processing-sweep'
 import { sweepDemandPackages } from './lib/demand-package-jobs'
+import { sweepDataExports } from './lib/data-export-jobs'
 import { runInsuranceFollowUps } from './lib/insurance-workbench'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 import { beginSweep, registerSweep } from './lib/ops-status'
@@ -61,6 +62,7 @@ let claimInviteTimer: NodeJS.Timeout | null = null
 let inboundSyncTimer: NodeJS.Timeout | null = null
 let evidenceProcessingTimer: NodeJS.Timeout | null = null
 let demandPackageTimer: NodeJS.Timeout | null = null
+let dataExportTimer: NodeJS.Timeout | null = null
 let insuranceFollowUpTimer: NodeJS.Timeout | null = null
 let intakeLeadIpPurgeTimer: NodeJS.Timeout | null = null
 
@@ -642,6 +644,29 @@ function startDemandPackageLoop() {
   }, intervalMs)
 }
 
+async function runDataExportLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('data-exports')
+  try {
+    const result = await sweepDataExports()
+    sweep.succeed()
+    if (result.requeued || result.started || result.expired || result.webhooks || trigger === 'startup') {
+      logger.info('Data export sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('Data export sweep failed', { trigger, error })
+  }
+}
+
+function startDataExportLoop() {
+  const intervalMs = 2 * 60 * 1000
+  registerSweep('data-exports', { label: 'Secure firm data exports', enabled: true, intervalMs })
+  void runDataExportLoop('startup')
+  dataExportTimer = setInterval(() => {
+    void runDataExportLoop('interval')
+  }, intervalMs)
+}
+
 function startEvidenceProcessingLoop() {
   const intervalMs = 5 * 60 * 1000
   registerSweep('evidence-processing-retry', {
@@ -729,6 +754,7 @@ function startBackgroundLoops() {
   startInboundSyncLoop()
   startEvidenceProcessingLoop()
   startDemandPackageLoop()
+  startDataExportLoop()
 }
 
 const leadershipHandlers = {
@@ -776,6 +802,7 @@ function stopBackgroundLoops() {
   if (inboundSyncTimer) clearInterval(inboundSyncTimer)
   if (evidenceProcessingTimer) clearInterval(evidenceProcessingTimer)
   if (demandPackageTimer) clearInterval(demandPackageTimer)
+  if (dataExportTimer) clearInterval(dataExportTimer)
   if (insuranceFollowUpTimer) clearInterval(insuranceFollowUpTimer)
   if (intakeLeadIpPurgeTimer) clearInterval(intakeLeadIpPurgeTimer)
   insuranceFollowUpTimer = null
@@ -799,6 +826,7 @@ function stopBackgroundLoops() {
   inboundSyncTimer = null
   evidenceProcessingTimer = null
   demandPackageTimer = null
+  dataExportTimer = null
 }
 
 function closeHttpServer() {

@@ -71,7 +71,7 @@ import publicBooking from './routes/public-booking'
 import calendarEvents from './routes/calendar-events'
 import calls from './routes/calls'
 import connectWebhook from './routes/connect-webhook'
-import { authLimiter, intakeLimiter } from './lib/rate-limits'
+import { authLimiter, intakeLimiter, syncLimiter } from './lib/rate-limits'
 import mfa from './routes/mfa'
 import account from './routes/account'
 
@@ -148,7 +148,7 @@ export function buildApp(): Express {
   app.use('/v1/heuristics', heuristics)
   app.use('/v1/integrations', integrations)
   app.use('/v1/cases', cases)
-  app.use('/v1/sync', sync)
+  app.use('/v1/sync', syncLimiter, sync)
   app.use('/v1/public/document-requests', documentPortal)
   app.use('/v1/public/booking', publicBooking)
   app.use('/v1/scheduling', scheduling)

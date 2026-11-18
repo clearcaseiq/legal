@@ -62,6 +62,37 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('clio OAuth identity', () => {
+  it('uses the Clio user id as both the user and stable account identity', async () => {
+    jsonOnce({
+      access_token: 'access',
+      refresh_token: 'refresh',
+      expires_in: 3600,
+    })
+    jsonOnce({ data: { id: 7788, name: 'Dana Lawyer', email: 'dana@example.com' } })
+    jsonOnce({ data: [] })
+    jsonOnce({ data: [] })
+
+    const tokens = await clioConnector.exchangeCode!('authorization-code')
+
+    expect(tokens).toMatchObject({
+      externalUserId: '7788',
+      externalAccountId: '7788',
+      externalAccountEmail: 'dana@example.com',
+    })
+  })
+
+  it('rejects a connection that cannot read the resources required for import', async () => {
+    jsonOnce({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 })
+    jsonOnce({ data: { id: 7788, email: 'dana@example.com' } })
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, headers: new Headers() })
+
+    await expect(clioConnector.exchangeCode!('authorization-code')).rejects.toThrow(
+      /missing required read access/i,
+    )
+  })
+})
+
 describe('clio listMatters', () => {
   it('asks for the nested client and practice area, which Clio omits by default', async () => {
     jsonOnce({ data: [], meta: { paging: { next: null } } })
@@ -71,6 +102,8 @@ describe('clio listMatters', () => {
     const fields = requestUrl().searchParams.get('fields') || ''
     expect(fields).toContain('client{')
     expect(fields).toContain('practice_area{')
+    expect(fields).toContain('custom_field_values{')
+    expect(fields).toContain('custom_field{id,name}')
     // Without a name the case has no claimant, which is the whole point.
     expect(fields).toContain('first_name')
   })
@@ -140,6 +173,76 @@ describe('clio listMatters', () => {
     expect(page.matters[0].raw).toMatchObject({ open_date: '2026-02-01' })
   })
 
+  it('maps recognised Clio custom fields onto incident date and venue', async () => {
+    jsonOnce({
+      data: [
+        {
+          id: 3,
+          open_date: '2026-02-01',
+          client: { first_name: 'Dana', last_name: 'Reyes' },
+          custom_field_values: [
+            { field_name: 'Date of Loss', value: '2025-11-14' },
+            { custom_field: { id: 12, name: 'Jurisdiction State' }, value: 'ca' },
+            { custom_field: { id: 13, name: 'Venue County' }, value: 'Los Angeles County' },
+          ],
+        },
+      ],
+      meta: {},
+    })
+
+    const page = await clioConnector.listMatters!(CLIO_AUTH, {})
+
+    expect(page.matters[0]).toMatchObject({
+      incidentDate: '2025-11-14',
+      venueState: 'CA',
+      venueCounty: 'Los Angeles',
+    })
+  })
+
+  it('does not trust an invalid or future custom-field date', async () => {
+    jsonOnce({
+      data: [
+        {
+          id: 4,
+          open_date: '2025-01-01',
+          custom_field_values: [
+            { field_name: 'Accident Date', value: '2999-01-01' },
+            { field_name: 'Venue State', value: 'California' },
+          ],
+        },
+      ],
+      meta: {},
+    })
+
+    const page = await clioConnector.listMatters!(CLIO_AUTH, {})
+
+    expect(page.matters[0].incidentDate).toBeNull()
+    expect(page.matters[0].venueState).toBeNull()
+    expect((page.matters[0].raw?.custom_field_values as any[])[0]).toMatchObject({
+      field_name: 'Accident Date',
+      value: '2999-01-01',
+    })
+  })
+
+  it('accepts object-shaped picklist custom-field values', async () => {
+    jsonOnce({
+      data: [
+        {
+          id: 5,
+          custom_field_values: [
+            { field_name: 'Venue State', value: { name: 'TX' } },
+            { field_name: 'Jurisdiction County', value: { label: 'Travis' } },
+          ],
+        },
+      ],
+      meta: {},
+    })
+
+    const page = await clioConnector.listMatters!(CLIO_AUTH, {})
+
+    expect(page.matters[0]).toMatchObject({ venueState: 'TX', venueCounty: 'Travis' })
+  })
+
   it('splits a company-style single name rather than dumping it in first name', async () => {
     jsonOnce({
       data: [{ id: 2, client: { name: 'Northgate Logistics LLC' } }],
@@ -181,6 +284,27 @@ describe('clio listMatters', () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 401, text: async () => 'unauthorized' })
 
     await expect(clioConnector.listMatters!(CLIO_AUTH, {})).rejects.toThrow(/401/)
+  })
+
+  it('honors Retry-After and retries a rate-limited read', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '0' }),
+    })
+    jsonOnce({ data: [{ id: 8 }], meta: {} })
+
+    const page = await clioConnector.listMatters!(CLIO_AUTH, {})
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(page.matters[0].externalId).toBe('8')
+  })
+
+  it('does not retry a non-rate-limited client error', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, headers: new Headers() })
+
+    await expect(clioConnector.listMatters!(CLIO_AUTH, {})).rejects.toThrow(/403/)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 

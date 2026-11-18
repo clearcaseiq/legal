@@ -7,12 +7,12 @@
  * documented 3-step flow: create document -> PUT bytes to the returned URL ->
  * PATCH fully_uploaded=true.
  *
- * Docs: https://docs.developers.clio.com/api-docs/clio-manage/
+ * Docs: https://docs.developers.clio.com/clio-manage/api-reference/
  */
 import { readFile } from 'fs/promises'
 import { basename } from 'path'
 import { ENV } from '../../../env'
-import { logger } from '../../logger'
+import { parseIncidentDate } from '../../imported-date'
 import {
   CmsNotConfiguredError,
   type CmsAuthContext,
@@ -38,6 +38,33 @@ function apiBase(auth?: CmsAuthContext): string {
   return (auth?.apiBaseUrl || ENV.CLIO_API_BASE).replace(/\/$/, '')
 }
 
+const CLIO_REQUEST_TIMEOUT_MS = 30_000
+const CLIO_MAX_ATTEMPTS = 4
+
+function headerValue(response: Response, name: string): string | null {
+  return typeof response.headers?.get === 'function' ? response.headers.get(name) : null
+}
+
+function retryDelayMs(response: Response | null, attempt: number): number {
+  const retryAfter = response ? headerValue(response, 'retry-after') : null
+  if (retryAfter) {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds)) return Math.min(Math.max(seconds * 1000, 0), 30_000)
+    const at = Date.parse(retryAfter)
+    if (Number.isFinite(at)) return Math.min(Math.max(at - Date.now(), 0), 30_000)
+  }
+  return Math.min(500 * 2 ** (attempt - 1), 4_000)
+}
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve()
+}
+
+function retryableStatus(method: string, status: number): boolean {
+  if (status === 429) return true
+  return method.toUpperCase() === 'GET' && [500, 502, 503, 504].includes(status)
+}
+
 async function clioJson<T>(
   auth: CmsAuthContext,
   method: string,
@@ -45,20 +72,57 @@ async function clioJson<T>(
   body?: unknown
 ): Promise<T> {
   if (!auth.accessToken) throw new Error('Clio connection is missing an access token')
-  const res = await fetch(`${apiBase(auth)}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`Clio ${method} ${path} failed (${res.status}): ${text.slice(0, 500)}`)
+  const serializedBody = body ? JSON.stringify(body) : undefined
+
+  for (let attempt = 1; attempt <= CLIO_MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), CLIO_REQUEST_TIMEOUT_MS)
+    let res: Response
+    try {
+      res = await fetch(`${apiBase(auth)}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${auth.accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: serializedBody,
+        signal: controller.signal,
+      })
+    } catch (error) {
+      clearTimeout(timeout)
+      const canRetry = method.toUpperCase() === 'GET' && attempt < CLIO_MAX_ATTEMPTS
+      if (!canRetry) throw error
+      await sleep(retryDelayMs(null, attempt))
+      continue
+    } finally {
+      clearTimeout(timeout)
+    }
+
+    if (res.ok) return (await res.json()) as T
+    if (attempt < CLIO_MAX_ATTEMPTS && retryableStatus(method, res.status)) {
+      await sleep(retryDelayMs(res, attempt))
+      continue
+    }
+
+    const requestId = headerValue(res, 'x-request-id')
+    const suffix = requestId ? `; request ${requestId}` : ''
+    throw new Error(`Clio ${method} ${path} failed (${res.status}${suffix})`)
   }
-  return (await res.json()) as T
+
+  throw new Error(`Clio ${method} ${path} failed after ${CLIO_MAX_ATTEMPTS} attempts`)
+}
+
+async function verifyInboundReadAccess(auth: CmsAuthContext): Promise<void> {
+  try {
+    await clioJson(auth, 'GET', '/api/v4/matters.json?fields=id&limit=1')
+    await clioJson(auth, 'GET', '/api/v4/custom_fields.json?fields=id,name&parent_type=Matter&limit=1')
+  } catch (error) {
+    throw new Error(
+      `Clio authorization is missing required read access to Matters or Custom Fields. ` +
+        `Update the Clio app permissions and reconnect. ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
 }
 
 export const clioConnector: CmsConnector = {
@@ -74,7 +138,7 @@ export const clioConnector: CmsConnector = {
       notes: configured()
         ? 'Connect your Clio account via OAuth.'
         : 'Set CLIO_CLIENT_ID / CLIO_CLIENT_SECRET / CLIO_REDIRECT_URI to enable.',
-      docsUrl: 'https://docs.developers.clio.com/api-docs/clio-manage/',
+      docsUrl: 'https://docs.developers.clio.com/clio-manage/api-reference/',
     }
   },
 
@@ -95,18 +159,22 @@ export const clioConnector: CmsConnector = {
       code,
       redirect_uri: ENV.CLIO_REDIRECT_URI as string,
     })
-    // Resolve identity so we can store external account id/email + org.
-    try {
-      const who = await clioJson<{ data: { id: number; name?: string; email?: string } }>(
-        { connectionId: '', accessToken: tokenSet.accessToken, config: {} },
-        'GET',
-        '/api/v4/users/who_am_i.json?fields=id,name,email'
-      )
-      tokenSet.externalUserId = String(who.data?.id ?? '')
-      tokenSet.externalAccountEmail = who.data?.email ?? null
-    } catch (error) {
-      logger.warn('Clio who_am_i lookup failed', { error })
-    }
+    const auth = { connectionId: '', accessToken: tokenSet.accessToken, config: {} }
+    // Identity is required for stable account ownership and deduplication.
+    const who = await clioJson<{ data: { id: number; name?: string; email?: string } }>(
+      auth,
+      'GET',
+      '/api/v4/users/who_am_i.json?fields=id,name,email'
+    )
+    const userId = String(who.data?.id ?? '')
+    tokenSet.externalUserId = userId
+    tokenSet.externalAccountId = userId
+    tokenSet.externalAccountEmail = who.data?.email ?? null
+
+    // A successful OAuth exchange does not prove the Clio app was granted the
+    // resource permissions this importer needs. Fail while the user is still
+    // connecting instead of six hours later in the scheduled sweep.
+    await verifyInboundReadAccess(auth)
     return tokenSet
   },
 
@@ -227,6 +295,7 @@ export const clioConnector: CmsConnector = {
       'open_date',
       'practice_area{id,name}',
       'client{id,name,first_name,last_name,primary_email_address,primary_phone_number}',
+      'custom_field_values{id,field_name,value,custom_field{id,name}}',
     ].join(',')
 
     let path: string
@@ -269,6 +338,61 @@ interface ClioMatter {
     primary_email_address?: string | null
     primary_phone_number?: string | null
   } | null
+  custom_field_values?: Array<{
+    id?: number | null
+    field_name?: string | null
+    value?: unknown
+    custom_field?: { id?: number | null; name?: string | null } | null
+  }> | null
+}
+
+const INCIDENT_DATE_FIELDS = new Set(['dateofloss', 'incidentdate', 'accidentdate', 'dateofincident'])
+const VENUE_STATE_FIELDS = new Set(['venuestate', 'jurisdictionstate', 'stateofvenue'])
+const VENUE_COUNTY_FIELDS = new Set(['venuecounty', 'jurisdictioncounty', 'countyofvenue'])
+
+function normalizeFieldName(value: string | null | undefined): string {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function customFieldValue(value: unknown): string | null {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    const text = String(value).trim()
+    return text || null
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    for (const key of ['name', 'value', 'label']) {
+      if (typeof record[key] === 'string' || typeof record[key] === 'number') {
+        const text = String(record[key]).trim()
+        if (text) return text
+      }
+    }
+  }
+  return null
+}
+
+function mappedCustomFields(matter: ClioMatter) {
+  let incidentDate: string | null = null
+  let venueState: string | null = null
+  let venueCounty: string | null = null
+
+  for (const field of matter.custom_field_values || []) {
+    const name = normalizeFieldName(field.custom_field?.name || field.field_name)
+    const value = customFieldValue(field.value)
+    if (!name || !value) continue
+
+    if (!incidentDate && INCIDENT_DATE_FIELDS.has(name)) {
+      const parsed = parseIncidentDate(value)
+      if (parsed.ok) incidentDate = parsed.date
+    } else if (!venueState && VENUE_STATE_FIELDS.has(name)) {
+      const state = value.trim().toUpperCase()
+      if (/^[A-Z]{2}$/.test(state)) venueState = state
+    } else if (!venueCounty && VENUE_COUNTY_FIELDS.has(name)) {
+      venueCounty = value.replace(/\s+county$/i, '').trim() || null
+    }
+  }
+
+  return { incidentDate, venueState, venueCounty }
 }
 
 function mapClioMatter(matter: ClioMatter): CmsInboundMatter {
@@ -277,6 +401,7 @@ function mapClioMatter(matter: ClioMatter): CmsInboundMatter {
   // populate both. Splitting the fallback keeps a company from landing
   // entirely in the first-name field.
   const [fallbackFirst, ...fallbackRest] = String(client.name || '').trim().split(/\s+/)
+  const custom = mappedCustomFields(matter)
 
   return {
     externalId: String(matter.id),
@@ -286,11 +411,13 @@ function mapClioMatter(matter: ClioMatter): CmsInboundMatter {
     clientPhone: client.primary_phone_number || null,
     description: matter.description || null,
     practiceArea: matter.practice_area?.name || null,
-    // Clio has no incident-date field of its own — `open_date` is when the
-    // matter was opened, which is not the date of loss and must not be
-    // presented as one. Left null so the sync reports the case as needing a
-    // date rather than inventing a limitations deadline from it.
-    incidentDate: null,
+    // Clio has no built-in incident date. Firms commonly add one as a custom
+    // field; only recognised labels and strictly parsed values are trusted.
+    // `open_date` remains deliberately unused because it is not the date of
+    // loss and would create a wrong limitations deadline.
+    incidentDate: custom.incidentDate,
+    venueState: custom.venueState,
+    venueCounty: custom.venueCounty,
     status: matter.status || null,
     raw: { ...matter, display_number: matter.display_number ?? null },
   }

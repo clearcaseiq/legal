@@ -48,6 +48,8 @@ export interface InboundSyncResult {
   provider: string
   dryRun: boolean
   imported: number
+  mattersWithUpdates: number
+  updatesProposed: number
   assessmentIds: string[]
   skipped: InboundSkippedMatter[]
   seen: number
@@ -67,9 +69,60 @@ export interface CmsSyncLogView {
   createdAt: string
 }
 
+export interface IntegrationAccess {
+  lawFirmId: string | null
+  canManageIntegrations: boolean
+}
+
+export interface DataExportView {
+  id: string
+  kind: 'snapshot' | 'incremental'
+  status: 'queued' | 'building' | 'ready' | 'failed' | 'expired'
+  since_cursor?: number | null
+  cutoff_cursor?: number | null
+  attempts: number
+  error?: string | null
+  row_counts?: Record<string, number> | null
+  reconciliation?: Record<string, number> | null
+  file_size?: number | null
+  sha256?: string | null
+  expires_at?: string | null
+  webhook_status?: string | null
+  created_at: string
+  completed_at?: string | null
+}
+
 export const getCmsProviders = async (): Promise<CmsProviderMeta[]> => {
   const res = await api.get('/v1/integrations/providers')
   return res.data.providers
+}
+
+export const getIntegrationAccess = async (): Promise<IntegrationAccess> => {
+  const res = await api.get('/v1/integrations/access')
+  return res.data
+}
+
+export const listDataExports = async (): Promise<DataExportView[]> => {
+  const res = await api.get('/v1/integrations/data-exports')
+  return res.data.exports
+}
+
+export const createDataExport = async (
+  type: 'snapshot' | 'incremental',
+  sinceCursor?: number
+): Promise<DataExportView> => {
+  const res = await api.post('/v1/integrations/data-exports', {
+    type,
+    ...(type === 'incremental' ? { sinceCursor } : {}),
+  })
+  return res.data.export
+}
+
+export const downloadDataExport = async (id: string): Promise<Blob> => {
+  const res = await api.get(`/v1/integrations/data-exports/${id}/download`, {
+    responseType: 'blob',
+  })
+  return res.data
 }
 
 export const getCmsConnections = async (): Promise<CmsConnectionView[]> => {

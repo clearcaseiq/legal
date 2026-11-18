@@ -2,7 +2,10 @@ import { config } from 'dotenv'
 import { resolve } from 'path'
 
 const apiEnvPath = resolve(__dirname, '../.env')
-config({ path: apiEnvPath, override: true })
+// Deployment/CI-provided variables must win over the developer .env file.
+// Overriding them here can silently point a QA or production process at the
+// database named in a file baked into the image.
+config({ path: apiEnvPath, override: false })
 
 function req(name: string) {
   const v = process.env[name]

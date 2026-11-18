@@ -13,11 +13,13 @@ import { act } from 'react'
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
 const getCmsConnections = vi.fn()
+const getIntegrationAccess = vi.fn()
 const setInboundSyncEnabled = vi.fn()
 const runInboundSync = vi.fn()
 
 vi.mock('../lib/api-integrations', () => ({
   getCmsConnections: () => getCmsConnections(),
+  getIntegrationAccess: () => getIntegrationAccess(),
   setInboundSyncEnabled: (...args: unknown[]) => setInboundSyncEnabled(...args),
   runInboundSync: (...args: unknown[]) => runInboundSync(...args),
 }))
@@ -32,7 +34,7 @@ function connection(overrides: Record<string, unknown> = {}) {
     id: 'conn-1',
     provider: 'clio',
     authType: 'oauth',
-    status: 'active',
+    status: 'connected',
     createdAt: new Date().toISOString(),
     supportsInbound: true,
     inboundSyncEnabled: false,
@@ -46,6 +48,8 @@ function syncResult(overrides: Record<string, unknown> = {}) {
     provider: 'clio',
     dryRun: false,
     imported: 0,
+    mattersWithUpdates: 0,
+    updatesProposed: 0,
     assessmentIds: [],
     skipped: [],
     seen: 0,
@@ -81,6 +85,7 @@ async function click(el: Element | null) {
 beforeEach(() => {
   vi.clearAllMocks()
   getCmsConnections.mockResolvedValue([connection()])
+  getIntegrationAccess.mockResolvedValue({ lawFirmId: 'firm-1', canManageIntegrations: true })
   setInboundSyncEnabled.mockResolvedValue({ inboundSyncEnabled: true })
   runInboundSync.mockResolvedValue(syncResult())
   container = document.createElement('div')
@@ -94,6 +99,14 @@ afterEach(() => {
 })
 
 describe('when there is nothing to sync from', () => {
+  it('does not show firm-wide sync controls to a regular attorney', async () => {
+    getIntegrationAccess.mockResolvedValue({ lawFirmId: 'firm-1', canManageIntegrations: false })
+    await mount()
+
+    expect(container.textContent).toBe('')
+    expect(getCmsConnections).not.toHaveBeenCalled()
+  })
+
   it('renders nothing rather than an empty panel', async () => {
     getCmsConnections.mockResolvedValue([])
     await mount()
@@ -104,6 +117,13 @@ describe('when there is nothing to sync from', () => {
   /** A firm can push to Zapier, but there is nothing there to read back. */
   it('ignores a connection that can only be written to', async () => {
     getCmsConnections.mockResolvedValue([connection({ provider: 'zapier', supportsInbound: false })])
+    await mount()
+
+    expect(container.textContent).toBe('')
+  })
+
+  it('hides disconnected connections rather than offering a sync that cannot authenticate', async () => {
+    getCmsConnections.mockResolvedValue([connection({ status: 'disconnected' })])
     await mount()
 
     expect(container.textContent).toBe('')
@@ -130,6 +150,12 @@ describe('before the firm turns it on', () => {
     expect(container.textContent).toMatch(/no routing fee/i)
   })
 
+  it('does not promise document synchronization', async () => {
+    await mount()
+
+    expect(container.textContent).toMatch(/documents are not imported/i)
+  })
+
   it('turns on when asked', async () => {
     await mount()
 
@@ -144,6 +170,13 @@ describe('before the firm turns it on', () => {
 describe('once it is on', () => {
   beforeEach(() => {
     getCmsConnections.mockResolvedValue([connection({ inboundSyncEnabled: true })])
+  })
+
+  it('explains that changed matters wait for firm review', async () => {
+    await mount()
+
+    expect(container.textContent).toMatch(/new and changed matters/i)
+    expect(container.textContent).toMatch(/changes to existing cases wait for firm review/i)
   })
 
   /** A firm with thousands of matters should see the shape of a run first. */
@@ -209,6 +242,18 @@ describe('once it is on', () => {
 
     expect(container.textContent).toMatch(/2 already on file/i)
     expect(container.textContent).not.toMatch(/need attention/i)
+  })
+
+  it('reports changed fields sent for firm review', async () => {
+    runInboundSync.mockResolvedValue(
+      syncResult({ seen: 2, mattersWithUpdates: 1, updatesProposed: 3 }),
+    )
+    await mount()
+
+    await click(button(/sync now/i))
+
+    expect(container.textContent).toMatch(/sent 3 updates across 1 case for review/i)
+    expect(container.textContent).not.toMatch(/everything in your caseload is already here/i)
   })
 
   /**

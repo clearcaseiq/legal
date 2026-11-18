@@ -16,6 +16,7 @@
     "prisma:reset:local": "node scripts/guard-destructive-prisma.mjs && node ../node_modules/prisma/build/index.js db push --accept-data-loss",
     "prisma:studio": "node ../node_modules/prisma/build/index.js studio",
     "schema:apply:prediction-lineage": "node scripts/apply-prediction-lineage-schema.mjs",
+    "schema:apply:data-exports": "node scripts/apply-secure-data-export-schema.mjs && node scripts/apply-export-webhook-event-schema.mjs",
     "route:tier1": "node ../node_modules/tsx/dist/cli.mjs scripts/route-tier1.ts",
     "route:tier2": "node ../node_modules/tsx/dist/cli.mjs scripts/route-tier2.ts",
     "route:tier3": "node ../node_modules/tsx/dist/cli.mjs scripts/route-tier3.ts",

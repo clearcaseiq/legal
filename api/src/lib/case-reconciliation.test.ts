@@ -27,6 +27,7 @@ const CASE = {
   lawFirmId: 'firm-1',
   revision: 5,
   caseName: 'Rivera v. Doe',
+  claimType: 'auto',
   status: 'DRAFT',
   venueState: 'CA',
   venueCounty: 'Los Angeles',
@@ -65,6 +66,8 @@ beforeEach(() => {
 describe('the field allowlist', () => {
   it('accepts both kinds of field and nothing else', () => {
     expect(isReconcilableField('caseName')).toBe(true)
+    expect(isReconcilableField('claimType')).toBe(true)
+    expect(isReconcilableField('venueState')).toBe(true)
     expect(isReconcilableField('facts:damages.med_charges')).toBe(true)
     expect(isReconcilableField('facts:consents.hipaa')).toBe(false)
     expect(isReconcilableField('userId')).toBe(false)

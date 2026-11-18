@@ -6,10 +6,15 @@ export interface SyncApiKeyView {
   id: string
   name: string
   prefix: string
+  scopes: SyncApiScope[]
+  expiresAt?: string | null
+  expired?: boolean
   lastUsedAt?: string | null
   revokedAt?: string | null
   createdAt: string
 }
+
+export type SyncApiScope = 'cases:read' | 'changes:read' | 'proposals:write' | 'export:read'
 
 export const listSyncKeys = async (): Promise<SyncApiKeyView[]> => {
   const res = await api.get('/v1/integrations/sync-keys')
@@ -17,9 +22,11 @@ export const listSyncKeys = async (): Promise<SyncApiKeyView[]> => {
 }
 
 export const createSyncKey = async (
-  name: string
+  name: string,
+  scopes: SyncApiScope[],
+  expiresInDays: number
 ): Promise<{ key: SyncApiKeyView; token: string }> => {
-  const res = await api.post('/v1/integrations/sync-keys', { name })
+  const res = await api.post('/v1/integrations/sync-keys', { name, scopes, expiresInDays })
   return res.data
 }
 

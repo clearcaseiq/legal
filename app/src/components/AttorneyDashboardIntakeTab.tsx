@@ -584,7 +584,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
             </span>
             <div>
               <h4 className="text-sm font-semibold text-slate-900">Import cases</h4>
-              <p className="text-xs text-slate-500">Bring cases over from your existing system, with documents and history.</p>
+              <p className="text-xs text-slate-500">Bring case data and available history over from your existing system.</p>
             </div>
           </div>
           <button type="button" onClick={downloadSampleImportFile} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50">
@@ -829,8 +829,8 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
         </div>
 
         <p className="mt-2 text-xs text-slate-500">
-          A spreadsheet carries case data, not files. Documents come across when you connect Clio or
-          Filevine directly.
+          A spreadsheet carries case data, not files. Live Clio and Filevine connections currently import
+          matter and client details, not document files.
         </p>
 
               <input

@@ -86,3 +86,10 @@ export const barLookupLimiter = build(
   15,
   'Too many license lookups. Please wait a few minutes and try again.',
 )
+
+/** External system reads/writes, isolated from browser and upload budgets. */
+export const syncLimiter = build(
+  'external_sync',
+  600,
+  'Too many sync requests. Please retry after the rate-limit window.',
+)

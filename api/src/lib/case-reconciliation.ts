@@ -53,6 +53,7 @@ type AssessmentForReconcile = {
   lawFirmId: string | null
   revision: number
   caseName: string | null
+  claimType: string
   status: string
   venueState: string
   venueCounty: string | null
@@ -72,11 +73,23 @@ export const RECONCILABLE_FIELDS: Record<string, FieldSpec> = {
     apply: (id, value) => prisma.assessment.update({ where: { id }, data: { caseName: value } }).then(() => undefined),
     label: 'Case name',
   },
+  claimType: {
+    read: (a) => a.claimType,
+    apply: (id, value) =>
+      prisma.assessment.update({ where: { id }, data: { claimType: value ?? 'other_pi' } }).then(() => undefined),
+    label: 'Claim type',
+  },
   status: {
     read: (a) => a.status,
     apply: (id, value) =>
       prisma.assessment.update({ where: { id }, data: { status: value ?? 'DRAFT' } }).then(() => undefined),
     label: 'Case status',
+  },
+  venueState: {
+    read: (a) => a.venueState,
+    apply: (id, value) =>
+      prisma.assessment.update({ where: { id }, data: { venueState: value ?? '' } }).then(() => undefined),
+    label: 'Venue state',
   },
   venueCounty: {
     read: (a) => a.venueCounty,
@@ -117,6 +130,7 @@ async function loadAssessment(assessmentId: string): Promise<AssessmentForReconc
       lawFirmId: true,
       revision: true,
       caseName: true,
+      claimType: true,
       status: true,
       venueState: true,
       venueCounty: true,
