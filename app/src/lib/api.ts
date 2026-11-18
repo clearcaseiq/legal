@@ -718,22 +718,6 @@ export async function downloadDemandLetterDocx(demandId: string) {
   return data
 }
 
-// Notifications API
-export async function sendNotification(type: 'email' | 'sms' | 'push', recipient: string, message: string, subject?: string, metadata?: any) {
-  const { data } = await api.post('/v1/notify/send', { type, recipient, subject, message, metadata })
-  return data
-}
-
-export async function getNotification(id: string) {
-  const { data } = await api.get(`/v1/notify/${id}`)
-  return data
-}
-
-export async function listNotifications(recipient: string) {
-  const { data } = await api.get(`/v1/notify/recipient/${recipient}`)
-  return data
-}
-
 // Authentication API
 export async function register(payload: any) {
   const { data } = await api.post('/v1/auth/register', payload)

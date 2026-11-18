@@ -27,7 +27,7 @@ const ATTORNEY_USER = {
   isActive: true,
 }
 const ATTORNEY_ID = 'att-outsider'
-const auth = { Authorization: `Bearer ${generateToken(ATTORNEY_USER.id)}` }
+const auth = { Authorization: `Bearer ${generateToken(ATTORNEY_USER.id, { mfa: true })}` }
 
 /** Every OR-branch the caller's queries were allowed to match on. */
 function orBranches(mock: { mock: { calls: any[] } }): any[] {

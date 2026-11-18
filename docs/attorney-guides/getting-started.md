@@ -47,7 +47,7 @@ Where in the app: **Upload attorney license** (`/attorney-license-upload`)
 
 ## Add a payment method
 
-Before you reach the dashboard you are asked to save a card. You are not charged when you save it. A per-case routing fee is charged only when you accept a case, and a saved card is required to accept cases. Card details are stored by Stripe; ClearCaseIQ never sees your full card number.
+Adding a card during onboarding is optional, and you are not charged when you save it. You can skip this step and add a payment method later from ClearCaseIQ plan & payments. A per-case routing fee is charged only when you accept a case, and a saved card is required before acceptance. Card details are stored by Stripe; ClearCaseIQ never sees your full card number.
 
 Where in the app: **Add a payment method** (`/attorney-onboarding/payment`)
 

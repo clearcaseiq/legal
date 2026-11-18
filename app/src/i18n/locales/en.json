@@ -115,6 +115,7 @@
       "description": "Matches, deadlines & activity"
     },
     "sections": {
+      "workspace": "Workspace",
       "leadgen": "Lead Generation",
       "casework": "Case Management",
       "help": "Help"
@@ -125,6 +126,18 @@
       "workspace": "Attorney Workspace"
     },
     "nav": {
+      "overview": {
+        "label": "Overview",
+        "description": "Firm activity and priorities"
+      },
+      "analytics": {
+        "label": "Analytics",
+        "description": "Lead and conversion performance"
+      },
+      "integrations": {
+        "label": "Integrations & Exports",
+        "description": "Connections and firm data exports"
+      },
       "matches": {
         "label": "New Matches",
         "description": "Cases awaiting review"
@@ -178,8 +191,8 @@
         "description": "Parties directory"
       },
       "billing": {
-        "label": "Billing",
-        "description": "Fees, invoices, costs"
+        "label": "Client billing",
+        "description": "Client fees, invoices, and costs"
       },
       "firm": {
         "label": "Firm Dashboard",

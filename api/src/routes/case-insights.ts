@@ -116,6 +116,7 @@ router.post('/assessments/:assessmentId/plaintiff-medical-review', optionalAuthM
       user: req.user,
       res,
       route: 'case-insights.plaintiff-medical-review.write',
+      access: 'write',
     })
     if (!allowed) return
 
@@ -207,6 +208,7 @@ router.post(
         user: req.user,
         res,
         route: 'case-insights.fact-confirmations.write',
+        access: 'write',
       })
       if (!allowed) return
 
@@ -329,6 +331,7 @@ router.post('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, a
       user: req.user,
       res,
       route: 'case-insights.satisfaction.write',
+      access: 'write',
     })
     if (!allowed) return
 

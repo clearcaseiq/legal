@@ -254,6 +254,7 @@ router.post('/generate', optionalAuthMiddleware, async (req: AuthRequest, res) =
       user: req.user,
       res,
       route: 'POST /v1/demands/generate',
+      access: 'write',
     })
     if (!permitted) return
 

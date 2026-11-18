@@ -14,8 +14,11 @@ import {
   Building2,
   Bell,
   BookOpen,
+  BarChart3,
   ChevronRight,
   Compass,
+  LayoutDashboard,
+  Plug,
 } from 'lucide-react'
 import { TourProvider } from '../tour/TourProvider'
 import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorkspaceContext'
@@ -70,6 +73,15 @@ const HELP_SECTION: NavSection = {
 
 const NAV_SECTIONS: NavSection[] = [
   {
+    id: 'workspace',
+    label: 'Workspace',
+    entries: [
+      { to: '/attorney-dashboard/overview', id: 'overview', label: 'Overview', description: 'Firm activity and priorities', icon: LayoutDashboard },
+      { to: '/attorney-dashboard/leadgen/analytics', id: 'analytics', label: 'Analytics', description: 'Lead and conversion performance', icon: BarChart3 },
+      { to: '/integrations', id: 'integrations', label: 'Integrations & Exports', description: 'Connections and firm data exports', icon: Plug, firmAdminOnly: true },
+    ],
+  },
+  {
     id: 'leadgen',
     label: 'Lead Generation',
     entries: [
@@ -88,7 +100,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Clients, team chat and mentions', icon: MessagesSquare },
       { to: '/attorney-dashboard/cases/documents', id: 'documents', label: 'Documents & E-sign', description: 'Requests & signatures', icon: FileSignature },
       { to: '/attorney-dashboard/cases/tasks', id: 'tasks', label: 'Tasks', description: 'Cross-case queue and deadlines', icon: ListChecks },
-      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
+      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Client billing', description: 'Client fees, invoices, and costs', icon: Wallet },
     ],
   },
   HELP_SECTION,
@@ -148,7 +160,7 @@ function useNavSections(): NavSection[] {
     ...section,
     entries: section.entries.filter(
       (entry) =>
-        (!entry.firmAdminOnly || isFirmAdmin) &&
+        (!entry.firmAdminOnly || isFirmAdmin || access?.permissions?.includes('manage_users')) &&
         (!entry.staffAction || access?.actions?.[entry.staffAction] === true) &&
         (!entry.staffAnyPermission || entry.staffAnyPermission.some((p) => access?.permissions?.includes(p))),
     ),
@@ -157,7 +169,7 @@ function useNavSections(): NavSection[] {
 
 // Per-domain color coding for the nav chips + active states. Lead Generation is
 // blue (acquisition), Case Management is emerald (delivery), Help is neutral.
-type DomainId = 'leadgen' | 'casework' | 'help'
+type DomainId = 'workspace' | 'leadgen' | 'casework' | 'help'
 
 const DOMAIN_STYLE: Record<DomainId, {
   row: string
@@ -167,6 +179,14 @@ const DOMAIN_STYLE: Record<DomainId, {
   desc: string
   pillActive: string
 }> = {
+  workspace: {
+    row: 'bg-violet-50 text-violet-900',
+    chipActive: 'bg-violet-600 text-white',
+    chipIdle: 'bg-violet-50 text-violet-500 group-hover:bg-violet-100 group-hover:text-violet-700',
+    bar: 'bg-violet-600',
+    desc: 'text-violet-500',
+    pillActive: 'border-violet-300 bg-violet-50 text-violet-700',
+  },
   leadgen: {
     row: 'bg-blue-50 text-blue-900',
     chipActive: 'bg-blue-600 text-white',

@@ -3,8 +3,13 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { deliverDirectNotification } from '../lib/platform-notifications'
+import { authMiddleware } from '../lib/auth'
+import { adminMiddleware } from '../lib/admin-access'
+import { notificationLimiter } from '../lib/rate-limits'
 
 const router = Router()
+
+router.use(notificationLimiter, authMiddleware, adminMiddleware)
 
 const NotificationRequest = z.object({
   type: z.enum(['email', 'sms', 'push']),

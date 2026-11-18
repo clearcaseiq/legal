@@ -36,7 +36,7 @@ const attorneyUser = {
   role: 'attorney',
   isActive: true,
 }
-const auth = { Authorization: `Bearer ${generateToken(attorneyUser.id)}` }
+const auth = { Authorization: `Bearer ${generateToken(attorneyUser.id, { mfa: true })}` }
 
 /** A live, un-accepted lead that was never routed to our caller. */
 const SHARED_LEAD = {

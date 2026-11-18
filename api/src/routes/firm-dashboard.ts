@@ -39,6 +39,7 @@ import {
   saveDemandStyle,
 } from '../lib/demand-style'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
+import { recordCaseChange } from '../lib/data-authority'
 import { buildCaseIntelligence } from '../lib/case-intelligence'
 import { deidentifyAssessmentForOffer } from '../lib/offer-deidentify'
 import { normalizeJurisdictionInput } from '../lib/jurisdictions'
@@ -1162,11 +1163,20 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
       return res.status(404).json({ error: 'Case not found' })
     }
 
+    const acceptedFirmIntroductions = (assessment.introductions || []).filter(
+      (intro: any) => intro.status === 'ACCEPTED',
+    )
+    const acceptedIntroduction = (
+      await Promise.all(
+        acceptedFirmIntroductions.map((intro: any) =>
+          ownedByActiveMember(intro.attorneyId || intro.attorney?.id, context.lawFirmId),
+        ),
+      )
+    ).some(Boolean)
     const belongsToFirm =
       assessment.lawFirmId === context.lawFirmId ||
-      assessment.leadSubmission?.assignedAttorney?.lawFirmId === context.lawFirmId ||
-      assessment.introductions?.some((intro: any) => intro.attorney?.lawFirmId === context.lawFirmId) ||
-      (await ownedByActiveMember(assessment.leadSubmission?.assignedAttorneyId, context.lawFirmId))
+      (await ownedByActiveMember(assessment.leadSubmission?.assignedAttorneyId, context.lawFirmId)) ||
+      acceptedIntroduction
 
     if (!belongsToFirm) {
       return res.status(403).json({ error: 'This case does not belong to your firm' })
@@ -1181,21 +1191,65 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
       }
     }
     if (assignedAttorneyId) {
-      const attorney = await prisma.attorney.findFirst({
-        where: { id: assignedAttorneyId, lawFirmId: context.lawFirmId }
-      })
-      if (!attorney) {
-        return res.status(400).json({ error: 'Assigned attorney is not in your firm' })
+      if (!(await ownedByActiveMember(assignedAttorneyId, context.lawFirmId))) {
+        return res.status(400).json({ error: 'Assigned attorney is not an active member of your firm' })
       }
     }
 
-    await (prisma as any).assessment.update({
-      where: { id: assessmentId },
-      data: { lawFirmId: context.lawFirmId }
+    const assignment = await prisma.$transaction(async (tx: any) => {
+      await tx.assessment.update({
+        where: { id: assessmentId },
+        data: { lawFirmId: context.lawFirmId },
+      })
+
+      // Single-owner roles: deactivate any prior active assignee for this
+      // (case, role) that isn't the person we're assigning now. Ownership,
+      // deactivation, and the replacement assignment commit together.
+      if (!MULTI_ASSIGNEE_CASE_ROLES.includes(role)) {
+        await tx.firmCaseAssignment.updateMany({
+          where: {
+            assessmentId,
+            role,
+            status: 'active',
+            NOT: {
+              assignedUserId: assignedUserId || null,
+              assignedAttorneyId: assignedAttorneyId || null,
+            },
+          },
+          data: { status: 'inactive' },
+        })
+      }
+
+      const existing = await tx.firmCaseAssignment.findFirst({
+        where: {
+          assessmentId,
+          role,
+          assignedUserId: assignedUserId || null,
+          assignedAttorneyId: assignedAttorneyId || null,
+        },
+      })
+      const assignmentData = {
+        lawFirmId: context.lawFirmId,
+        status: 'active',
+        notes: typeof notes === 'string' ? notes.trim() : null,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        assignedById: context.user?.id || null,
+      }
+      return existing
+        ? tx.firmCaseAssignment.update({ where: { id: existing.id }, data: assignmentData })
+        : tx.firmCaseAssignment.create({
+            data: {
+              ...assignmentData,
+              assessmentId,
+              role,
+              assignedUserId: assignedUserId || null,
+              assignedAttorneyId: assignedAttorneyId || null,
+            },
+          })
     })
 
-    // Auto-apply the firm's standard workflow when a case first joins the firm.
-    // Idempotent + best-effort (no-op if no applied workflow or already applied).
+    // Workflow application remains idempotent and best-effort, but only runs
+    // after the ownership + assignment transaction has committed.
     try {
       await applyFirmWorkflowToCase({
         assessmentId,
@@ -1206,57 +1260,15 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
       logger.warn('Auto-apply firm workflow on assignment failed', { error: wfErr?.message })
     }
 
-    // Single-owner roles: deactivate any prior active assignee for this
-    // (case, role) that isn't the person we're assigning now, so downstream
-    // team-caseload aggregation doesn't double-count superseded assignments.
-    // Co-counsel roles keep everyone already on the case.
-    if (!MULTI_ASSIGNEE_CASE_ROLES.includes(role)) {
-      await (prisma as any).firmCaseAssignment.updateMany({
-        where: {
-          assessmentId,
-          role,
-          status: 'active',
-          NOT: {
-            assignedUserId: assignedUserId || null,
-            assignedAttorneyId: assignedAttorneyId || null
-          }
-        },
-        data: { status: 'inactive' }
-      })
-    }
-
-    const existing = await (prisma as any).firmCaseAssignment.findFirst({
-      where: {
-        assessmentId,
-        role,
-        assignedUserId: assignedUserId || null,
-        assignedAttorneyId: assignedAttorneyId || null
-      }
+    await recordCaseChange({
+      assessmentId,
+      source: 'attorney',
+      action: 'assigned',
+      entityType: 'firm_case_assignment',
+      entityId: assignment.id,
+      summary: `Case assignment updated (${role})`,
+      actor: { type: 'user', id: context.user?.id || null, label: context.user?.email || null },
     })
-    const assignment = existing
-      ? await (prisma as any).firmCaseAssignment.update({
-          where: { id: existing.id },
-          data: {
-            lawFirmId: context.lawFirmId,
-            status: 'active',
-            notes: typeof notes === 'string' ? notes.trim() : null,
-            dueDate: dueDate ? new Date(dueDate) : null,
-            assignedById: context.user?.id || null
-          }
-        })
-      : await (prisma as any).firmCaseAssignment.create({
-          data: {
-            lawFirmId: context.lawFirmId,
-            assessmentId,
-            role,
-            assignedUserId: assignedUserId || null,
-            assignedAttorneyId: assignedAttorneyId || null,
-            status: 'active',
-            notes: typeof notes === 'string' ? notes.trim() : null,
-            dueDate: dueDate ? new Date(dueDate) : null,
-            assignedById: context.user?.id || null
-          }
-        })
 
     res.status(201).json({ assignment })
   } catch (error: any) {

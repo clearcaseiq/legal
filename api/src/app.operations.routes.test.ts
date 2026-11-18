@@ -232,6 +232,15 @@ describe('HTTP operations regressions', () => {
       }
       return null
     })
+    // Most route fixtures below model an accepted case but intentionally leave
+    // assignment fields null to focus on compact query shapes. Give those
+    // fixtures a current relationship now that marketplace visibility is
+    // deidentified-read-only; tests for missing/pending offers override this.
+    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({
+      id: 'intro-default',
+      status: 'ACCEPTED',
+      attorneyId: 'attorney-record-1',
+    } as any)
   })
 
   it('POST /v1/assessments/associate adopts guest-shadow assessments and evidence files', async () => {
@@ -3392,7 +3401,7 @@ describe('HTTP operations regressions', () => {
       where: { id: 'lead-1' },
       data: { lastContactAt: expect.any(Date) },
     })
-    expect(vi.mocked(prisma.assessment.findUnique).mock.calls[0]?.[0]).toEqual({
+    expect(vi.mocked(prisma.assessment.findUnique).mock.calls.map((call) => call[0])).toContainEqual({
       where: { id: 'asm-1' },
       select: {
         userId: true,

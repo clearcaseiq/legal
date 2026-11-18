@@ -69,14 +69,14 @@ describe('HTTP API route coverage (mocked prisma)', () => {
     expect(res.body.success).toBe(true)
   })
 
-  it('POST /v1/notify/send (email)', async () => {
+  it('POST /v1/notify/send requires authentication', async () => {
     const res = await request(app).post('/v1/notify/send').send({
       type: 'email',
       recipient: 'a@example.com',
       message: 'hello',
     })
     expectHandledStatus(res.status)
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(401)
   })
 
   it('POST /v1/sms/webhook missing fields → 400', async () => {

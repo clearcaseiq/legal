@@ -354,21 +354,21 @@ router.post('/platform/subscription-checkout-session', authMiddleware, async (re
       tierLabel: subscriptionTier.label,
       includedCasesPerMonth: toStripeMetadataValue(subscriptionTier.includedCasesPerMonth),
     }
-    const priceId = req.body?.priceId || ENV.STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID
-    const lineItem = priceId
-      ? { price: priceId, quantity: 1 }
-      : {
-          quantity: 1,
-          price_data: {
-            currency: 'usd',
-            unit_amount: subscriptionTier.monthlyPriceCents,
-            recurring: { interval: 'month' as const },
-            product_data: {
-              name: `CaseIQ ${subscriptionTier.label} subscription`,
-              description: subscriptionTier.description,
-            },
-          },
-        }
+    // Never trust a browser-supplied Stripe price. The selected tier's
+    // server-side configuration is the sole source of both the charge and the
+    // entitlements carried in metadata.
+    const lineItem = {
+      quantity: 1,
+      price_data: {
+        currency: 'usd',
+        unit_amount: subscriptionTier.monthlyPriceCents,
+        recurring: { interval: 'month' as const },
+        product_data: {
+          name: `CaseIQ ${subscriptionTier.label} subscription`,
+          description: subscriptionTier.description,
+        },
+      },
+    }
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -386,7 +386,7 @@ router.post('/platform/subscription-checkout-session', authMiddleware, async (re
         status: 'checkout_created',
         stripeCustomerId: customerId,
         stripeCheckoutSessionId: session.id,
-        stripePriceId: priceId,
+        stripePriceId: null,
         metadata: JSON.stringify(metadata),
       },
     })

@@ -536,8 +536,6 @@ function App() {
               <Route path="/attorney-login" element={<AttorneyLogin />} />
               <Route path="/login/attorney" element={<AttorneyLogin />} />
               <Route path="/attorney-register" element={<AttorneyRegister />} />
-              <Route path="/attorney-license-upload" element={<AttorneyLicenseUpload />} />
-              <Route path="/attorney-onboarding/payment" element={<AttorneyOnboardingPayment />} />
             </Route>
             <Route element={<GuestRoute role="admin" />}>
               <Route path="/admin-login" element={<AdminLogin />} />
@@ -1509,6 +1507,9 @@ function App() {
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
             </Route>
             <Route element={<ProtectedRoute role="attorney" />}>
+              {/* Payment setup remains optional after attorney registration. */}
+              <Route path="/attorney-license-upload" element={<AttorneyLicenseUpload />} />
+              <Route path="/attorney-onboarding/payment" element={<AttorneyOnboardingPayment />} />
               {/* Two-domain workspace shell (Lead Generation vs Case Management).
                   Each route mounts the shared sidebar layout and a focused page. */}
               <Route element={<AttorneyWorkspaceLayout />}>

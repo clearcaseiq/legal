@@ -1577,6 +1577,7 @@ router.post('/:id/submit-otp', intakeLimiter, optionalAuthMiddleware, async (req
       user: req.user,
       res,
       route: 'assessments.submit-otp',
+      access: 'write',
     })
     if (!allowed) return
 
@@ -1662,6 +1663,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       user: req.user,
       res,
       route: 'assessments.submit-for-review',
+      access: 'write',
     })
     if (!allowedToSubmit) return
 

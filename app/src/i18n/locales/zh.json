@@ -175,8 +175,8 @@
         "description": "当事人名录"
       },
       "billing": {
-        "label": "账单",
-        "description": "费用、发票、成本"
+        "label": "客户账单",
+        "description": "客户费用、发票、成本"
       },
       "firm": {
         "label": "事务所仪表板",

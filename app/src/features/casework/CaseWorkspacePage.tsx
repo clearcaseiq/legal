@@ -74,6 +74,7 @@ import {
   restoreLeadTask,
   type DeletedLeadTask,
   mergeLeadTasks,
+  downloadLeadCaseFile,
   downloadEvidenceByUrl,
   bulkDownloadEvidenceZip,
   getEvidenceObjectUrl,
@@ -162,6 +163,7 @@ import { todayDateKey } from '../../lib/taskDueDate'
 import CaseNameEditor from './CaseNameEditor'
 import StartVideoCallButton from './StartVideoCallButton'
 import DemandLetterWorkspace from './DemandLetterWorkspace'
+import AttorneyPredictionReviewPanel from '../../components/AttorneyPredictionReviewPanel'
 import { getStoredRole } from '../../lib/auth'
 import { useFirmAccess, type FirmAction } from '../../hooks/useFirmAccess'
 import { STAFF_CASES_ROUTE } from '../shared/AttorneyWorkspaceLayout'
@@ -460,6 +462,8 @@ export default function CaseWorkspacePage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [caseFileLoading, setCaseFileLoading] = useState(false)
+  const [caseFileError, setCaseFileError] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
   // Bumped on every open so the drawer remounts fresh and always seeds its
@@ -717,6 +721,27 @@ export default function CaseWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const downloadCaseFile = useCallback(async () => {
+    if (!leadId) return
+    setCaseFileLoading(true)
+    setCaseFileError(null)
+    try {
+      const blob = await downloadLeadCaseFile(leadId)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `case-file-${leadId}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err: any) {
+      setCaseFileError(err?.response?.data?.error || err?.message || 'Failed to download case file')
+    } finally {
+      setCaseFileLoading(false)
+    }
+  }, [leadId])
+
   if (!leadId) return <EmptyState message="No case selected." />
 
   return (
@@ -812,8 +837,24 @@ export default function CaseWorkspacePage() {
                   </button>
                 )}
                 {!isStaff && <StartVideoCallButton leadId={leadId} />}
+                {!isStaff && (
+                  <button
+                    type="button"
+                    onClick={() => void downloadCaseFile()}
+                    disabled={caseFileLoading}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {caseFileLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {caseFileLoading ? 'Preparing ZIP…' : 'Download case ZIP'}
+                  </button>
+                )}
               </div>
             </div>
+            {caseFileError && (
+              <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {caseFileError}
+              </p>
+            )}
 
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Metric label="Case value (median)" value={detail.caseValue ? money(detail.caseValue) : 'Pending valuation'} accent />
@@ -1694,6 +1735,7 @@ function WorkstreamPanel({
       <div className="space-y-4">
         {/* AI Case Intelligence — Summary first so attorneys see the case at a glance */}
         <CaseIntelligencePanel leadId={lead.id} onUpdated={() => void reloadCc()} />
+        {!isStaff && <AttorneyPredictionReviewPanel leadId={lead.id} />}
 
         {actionMsg ? (
           <div

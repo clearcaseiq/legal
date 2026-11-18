@@ -29,6 +29,7 @@ import { localizedPath, pathForLocale } from '../data/localePathPairs'
 import { isCalendarRoute, isWideAttorneyRoute, isWideContentRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 import { getApiOrigin } from '../lib/runtimeEnv'
+import { useFirmAccess } from '../hooks/useFirmAccess'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
 const NotificationsBell = lazy(() => import('./NotificationsBell'))
@@ -223,6 +224,11 @@ export default function Layout({ children }: LayoutProps) {
   // Firm staff (paralegal, intake, case manager) sign in as a User with a firm
   // membership: their home is the firm dashboard, not the claimant portal.
   const isStaff = !isAdmin && storedRole === 'staff'
+  const { access: firmAccess } = useFirmAccess(isAttorney)
+  const canManageIntegrations =
+    isAttorney &&
+    (firmAccess?.firm?.role === 'firm_admin' ||
+      firmAccess?.permissions?.includes('manage_users'))
   const profileHref = isAttorney ? '/attorney-profile' : isStaff ? '/staff-profile' : '/dashboard?tab=profile'
   // The attorney WORKSPACE sidebar renders by route (AttorneyWorkspaceLayout is
   // mounted for /attorney-* and /firm-* paths regardless of role detection), but
@@ -675,6 +681,17 @@ export default function Layout({ children }: LayoutProps) {
                             )}
                             {isAttorney && (
                               <>
+                                <Link to="/attorney-dashboard/overview" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
+                                  Overview
+                                </Link>
+                                <Link to="/attorney-dashboard/leadgen/analytics" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
+                                  Analytics
+                                </Link>
+                                {canManageIntegrations && (
+                                  <Link to="/integrations" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
+                                    Integrations &amp; Exports
+                                  </Link>
+                                )}
                                 <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Firm Dashboard
                                 </Link>
@@ -682,7 +699,7 @@ export default function Layout({ children }: LayoutProps) {
                                   Firm Settings
                                 </Link>
                                 <Link to="/attorney-billing" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
-                                  Billing
+                                  ClearCaseIQ plan &amp; payments
                                 </Link>
                                 <Link to={navLinks.help} onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   {t('common.help')}
@@ -813,8 +830,12 @@ export default function Layout({ children }: LayoutProps) {
                       )}
                       {isAttorney && (
                         <>
+                          <Link to="/attorney-dashboard/overview" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Overview</Link>
+                          <Link to="/attorney-dashboard/leadgen/analytics" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Analytics</Link>
+                          {canManageIntegrations && <Link to="/integrations" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Integrations &amp; Exports</Link>}
                           <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
                           <Link to="/firm-settings" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
+                          <Link to="/attorney-billing" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">ClearCaseIQ plan &amp; payments</Link>
                         </>
                       )}
                   <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.help')}</Link>

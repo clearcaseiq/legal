@@ -67,7 +67,7 @@ export default function BillingPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Billing"
+        title="Client billing"
         description="Fees collected year-to-date, rolled up from every case's payments. Open a case to raise invoices and record payments."
       />
 

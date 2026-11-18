@@ -29,7 +29,7 @@ import { evidenceCategoriesForListing, syncPlaintiffDocumentRequestStatuses } fr
 import { recordAssistanceDocumentSubmission } from '../lib/assistance-document-intake'
 import { ensureCaseOwnerUserId } from '../lib/case-owner'
 import { uploadLimiter } from '../lib/rate-limits'
-import { replicateUploads } from '../lib/object-storage'
+import { persistUploadedFiles, replicateUploads } from '../lib/object-storage'
 import { isAcceptedUpload } from '../lib/upload-filter'
 
 const router = Router()
@@ -48,6 +48,10 @@ function discardUploadedFile(file: { path?: string } | undefined): void {
   } catch (error) {
     logger.warn('Failed to remove rejected upload', { path: file.path, error })
   }
+}
+
+function discardUploadedFiles(files: Array<{ path?: string }> | undefined): void {
+  for (const file of files ?? []) discardUploadedFile(file)
 }
 
 async function resolveUploadUserId(userId: string | null, assessmentId?: string) {
@@ -426,6 +430,7 @@ router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('fil
         user: req.user,
         res,
         route: 'evidence.upload',
+        access: 'write',
       })
       if (!allowed) {
         discardUploadedFile(req.file)
@@ -657,17 +662,40 @@ router.post('/upload', uploadLimiter, optionalAuthMiddleware, upload.single('fil
 })
 
 // Upload multiple files
-router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.array('files', 10), replicateUploads, async (req: any, res) => {
+router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.array('files', 10), async (req: any, res) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? []
+  const completedPaths = new Set<string>()
   try {
-    const files = req.files as Express.Multer.File[]
-    if (!files || files.length === 0) {
+    if (files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' })
     }
 
     let userId = req.user?.id || null
     const { assessmentId, category, subcategory, description, tags, relevanceScore, provenanceSource, provenanceNotes, provenanceActor, provenanceDate } = req.body
+
+    // Multer must parse the multipart body before assessmentId is available.
+    // Authorize immediately afterwards, before resolving/creating an owner,
+    // copying bytes to durable storage, or processing any file.
+    if (assessmentId) {
+      const allowed = await enforceAssessmentReadAccess({
+        assessmentId: String(assessmentId),
+        user: req.user,
+        res,
+        route: 'evidence.upload-multiple',
+        access: 'write',
+      })
+      if (!allowed) {
+        discardUploadedFiles(files)
+        return
+      }
+    } else if (!userId) {
+      discardUploadedFiles(files)
+      return res.status(401).json({ error: 'Sign in or attach this upload to an assessment.' })
+    }
+
     userId = await resolveUploadUserId(userId, assessmentId)
     if (!userId) {
+      discardUploadedFiles(files)
       return res.status(400).json({ error: 'Missing user. Please sign in or attach to an assessment.' })
     }
 
@@ -678,6 +706,7 @@ router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.ar
     if (multiUser && !isGuestCaseUserEmail(multiUser.email)) {
       const { ok, missing, outdated } = await getClientConsentCompliance(userId)
       if (!ok) {
+        discardUploadedFiles(files)
         return res.status(403).json({
           error: 'Required legal consents must be accepted for the current document versions.',
           code: 'REQUIRED_CONSENTS_INCOMPLETE',
@@ -685,11 +714,23 @@ router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.ar
         })
       }
       if (ENV.REQUIRE_EMAIL_VERIFICATION && !multiUser.emailVerified) {
+        discardUploadedFiles(files)
         return res.status(403).json({
           error: 'Please verify your email address to upload evidence.',
           code: 'EMAIL_VERIFICATION_REQUIRED',
         })
       }
+    }
+
+    try {
+      await persistUploadedFiles(files)
+    } catch (storageError) {
+      discardUploadedFiles(files)
+      logger.error('Rejecting batch upload that could not be stored durably', { error: storageError })
+      return res.status(503).json({
+        error: 'Upload storage is unavailable. Please try again.',
+        code: 'STORAGE_UNAVAILABLE',
+      })
     }
 
     const results = []
@@ -808,8 +849,10 @@ router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.ar
         }
 
         results.push({ ...evidenceFile, vision: visionResult })
+        completedPaths.add(file.path)
       } catch (fileError) {
         logger.error('Failed to process file in batch upload', { error: fileError, filename: file.originalname })
+        discardUploadedFile(file)
         results.push({ error: `Failed to process ${file.originalname}` })
       }
     }
@@ -835,6 +878,7 @@ router.post('/upload-multiple', uploadLimiter, optionalAuthMiddleware, upload.ar
     res.status(201).json({ files: results, count: results.length })
   } catch (error) {
     logger.error('Failed to upload multiple evidence files', { error })
+    discardUploadedFiles(files.filter((file) => !completedPaths.has(file.path)))
     res.status(500).json({ error: 'Failed to upload evidence files' })
   }
 })

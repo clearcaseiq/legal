@@ -60,7 +60,7 @@ import {
 import type { SignableDocumentType } from '../lib/esign/types'
 import { readClaimantContact } from '../lib/claimant-contact'
 import { firmAllows, resolveMemberAccess } from '../lib/firm-access'
-import { checkLeadIsAccepted, getAuthorizedLead } from './attorney-dashboard'
+import { checkLeadIsAccepted } from './attorney-dashboard'
 import { sendClientPacket, textEnvelopeToClient } from '../lib/client-packet'
 import { CountersignAccessError, listCountersignQueue, resendCountersignRequest } from '../lib/esign/countersign'
 
@@ -106,68 +106,125 @@ const attorneySelect = { id: true, name: true, email: true, lawFirmId: true } as
  * the firm attorney the case was introduced to, else any attorney at the firm.
  * `staffWrite` requires one of STAFF_SEND_PERMISSIONS; reads need case access only.
  */
-async function resolveAttorney(req: AuthRequest, opts: { staffWrite?: boolean } = {}) {
+async function resolveAttorney(
+  req: AuthRequest,
+  opts: { staffWrite?: boolean; leadId?: string } = {},
+) {
   if (!req.user?.email) return null
   const own = await prisma.attorney.findFirst({ where: { email: req.user.email }, select: attorneySelect })
-  if (own) return own
-
-  const leadId = (req.params as any)?.leadId
+  const leadId = opts.leadId || (req.params as any)?.leadId
   if (!leadId) return null
-  const auth: any = await getAuthorizedLead(req, leadId, { staffCan: 'any' })
-  if (auth.error || !auth.firmMember) return null
-  if (opts.staffWrite) {
-    const access = await resolveMemberAccess(prisma as any, req.user as any).catch(() => null)
-    if (!firmAllows(access, STAFF_SEND_PERMISSIONS)) return null
+
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { id: leadId },
+    select: { id: true, assessmentId: true, assignedAttorneyId: true, assessment: { select: { lawFirmId: true } } },
+  })
+  if (!lead) return null
+
+  const access = await resolveMemberAccess(prisma as any, req.user as any).catch(() => null)
+  const ownAssignment = Boolean(own && lead.assignedAttorneyId === own.id)
+  const acceptedIntro = own
+    ? await prisma.introduction.findFirst({
+        where: { assessmentId: lead.assessmentId, attorneyId: own.id, status: 'ACCEPTED' },
+        select: { id: true },
+      })
+    : null
+  const acceptedShare = own
+    ? await prisma.caseShare.findFirst({
+        where: {
+          assessmentId: lead.assessmentId,
+          status: 'accepted',
+          ...(opts.staffWrite ? { accessLevel: 'edit' } : {}),
+          OR: [{ sharedWithAttorneyId: own.id }, { sharedWithEmail: own.email || undefined }],
+        },
+        select: { id: true },
+      })
+    : null
+
+  let firmCase = false
+  if (access?.lawFirmId) {
+    const firmRelationship =
+      lead.assessment?.lawFirmId === access.lawFirmId ||
+      Boolean(
+        lead.assignedAttorneyId &&
+          (await (prisma as any).firmMember.findFirst({
+            where: {
+              lawFirmId: access.lawFirmId,
+              attorneyId: lead.assignedAttorneyId,
+              status: 'active',
+            },
+            select: { id: true },
+          })),
+      ) ||
+      Boolean(
+        await prisma.introduction.findFirst({
+          where: {
+            assessmentId: lead.assessmentId,
+            status: 'ACCEPTED',
+            attorney: {
+              firmMemberships: { some: { lawFirmId: access.lawFirmId, status: 'active' } },
+            },
+          },
+          select: { id: true },
+        }),
+      )
+    firmCase = firmRelationship
   }
 
-  const lawFirmId: string | null = auth.firmMember.lawFirmId ?? null
-  if (auth.lead.assignedAttorneyId) {
-    const assigned = await prisma.attorney.findUnique({ where: { id: auth.lead.assignedAttorneyId }, select: attorneySelect })
-    if (assigned) return assigned
+  if (!ownAssignment && !acceptedIntro && !acceptedShare && !firmCase) return null
+  if (!own && (!access || (opts.staffWrite && !firmAllows(access, STAFF_SEND_PERMISSIONS)))) return null
+
+  let acting = own
+  if (!acting && access?.lawFirmId) {
+    if (lead.assignedAttorneyId) {
+      acting = await prisma.attorney.findFirst({
+        where: {
+          id: lead.assignedAttorneyId,
+          firmMemberships: { some: { lawFirmId: access.lawFirmId, status: 'active' } },
+        },
+        select: attorneySelect,
+      })
+    }
+    if (!acting) {
+      const intro = await prisma.introduction.findFirst({
+        where: {
+          assessmentId: lead.assessmentId,
+          status: 'ACCEPTED',
+          attorney: {
+            firmMemberships: { some: { lawFirmId: access.lawFirmId, status: 'active' } },
+          },
+        },
+        orderBy: { requestedAt: 'desc' },
+        select: { attorney: { select: attorneySelect } },
+      })
+      acting = intro?.attorney ?? null
+    }
+    if (!acting) {
+      acting = await prisma.attorney.findFirst({
+        where: { firmMemberships: { some: { lawFirmId: access.lawFirmId, status: 'active' } } },
+        orderBy: { createdAt: 'asc' },
+        select: attorneySelect,
+      })
+    }
   }
-  if (!lawFirmId) return null
-  const intro = await prisma.introduction.findFirst({
-    where: { assessmentId: auth.lead.assessmentId, attorney: { lawFirmId } },
-    orderBy: { requestedAt: 'desc' },
-    select: { attorney: { select: attorneySelect } },
-  })
-  if (intro?.attorney) return intro.attorney
-  return prisma.attorney.findFirst({ where: { lawFirmId }, orderBy: { createdAt: 'asc' }, select: attorneySelect })
+  return acting ? Object.assign(acting, { __documentLead: lead }) : null
 }
 
 /**
- * Load a lead and assert the caller attorney may act on it (or it's unassigned).
- *
- * Access follows the firm, not the assignment alone. A lead assigned to one
- * attorney is still the firm's matter, and a firm admin sending a retainer on a
- * colleague's case is ordinary practice — the firm dashboard already lets them
- * assign and reassign these very cases. Matching on the assigned attorney only
- * left a firm admin unable to send anything, and because the read endpoints
- * share this rule it also broke the panel that was meant to show the error:
- * listing envelopes 403'd, so the provider list never loaded and the picker sat
- * on "Loading signature tools…" indefinitely.
+ * Return the lead already authorized by resolveAttorney. Unassigned marketplace
+ * leads are deliberately not a relationship: assignment, an active firm claim,
+ * an accepted share, or an accepted introduction is required.
  */
 async function resolveLeadForAttorney(
   leadId: string,
-  attorney: { id: string; lawFirmId: string | null },
+  attorney: { id: string; lawFirmId: string | null; __documentLead?: any },
 ) {
+  if (attorney.__documentLead?.id === leadId) return { lead: attorney.__documentLead }
   const lead = await prisma.leadSubmission.findUnique({
     where: { id: leadId },
-    select: { id: true, assignedAttorneyId: true },
+    select: { id: true },
   })
   if (!lead) return { error: 404 as const }
-  if (!lead.assignedAttorneyId || lead.assignedAttorneyId === attorney.id) {
-    return { lead }
-  }
-  if (attorney.lawFirmId) {
-    const assigned = await prisma.attorney.findUnique({
-      where: { id: lead.assignedAttorneyId },
-      select: { lawFirmId: true },
-    })
-    if (assigned?.lawFirmId && assigned.lawFirmId === attorney.lawFirmId) {
-      return { lead }
-    }
-  }
   return { error: 403 as const }
 }
 
@@ -467,13 +524,14 @@ router.get('/envelopes/:envelopeId/signed', authMiddleware, async (req: AuthRequ
         status: true,
         signedFilePath: true,
         title: true,
+        leadId: true,
         lead: { select: { assessment: { select: { userId: true } } } },
       },
     })
     if (!env) return res.status(404).json({ error: 'Envelope not found' })
 
-    const attorney = await resolveAttorney(req)
-    const isAttorneyOwner = Boolean(attorney && env.attorneyId === attorney.id)
+    const attorney = await resolveAttorney(req, { leadId: env.leadId })
+    const isAttorneyOwner = Boolean(attorney)
     const isPlaintiffOwner = Boolean(req.user?.id && env.lead?.assessment?.userId === req.user.id)
     if (!isAttorneyOwner && !isPlaintiffOwner) {
       return res.status(403).json({ error: 'Not authorized to download this document' })

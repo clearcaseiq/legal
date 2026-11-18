@@ -6,9 +6,8 @@ import BrandLogo from '../components/BrandLogo'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getPaymentMethodStatus, syncDefaultPaymentMethod } from '../lib/api'
 
-// Post-registration onboarding gate: attorneys save a card before reaching the
-// dashboard. With a card on file, accepting a case charges the routing fee
-// instantly (off-session) instead of bouncing the attorney to hosted Checkout.
+// Optional post-registration setup. With a card on file, accepting a case can
+// charge the routing fee instantly instead of requiring checkout at that point.
 export default function AttorneyOnboardingPayment() {
   const { t } = useLanguage()
   const navigate = useNavigate()
@@ -82,9 +81,9 @@ export default function AttorneyOnboardingPayment() {
             <div>
               <h1 className="text-xl font-bold text-gray-900">Add a payment method</h1>
               <p className="mt-1 text-sm text-gray-600">
-                Save a card to finish setting up your account. You&apos;re not charged now. A
-                per-case routing fee applies only when you accept a case, and having a card on file
-                lets you accept instantly without an extra checkout step.
+                Saving a card now is optional, and you&apos;re not charged when you add it. A
+                per-case routing fee applies only when you accept a case; you can add a card later
+                from ClearCaseIQ plan &amp; payments.
               </p>
             </div>
           </div>
@@ -100,7 +99,7 @@ export default function AttorneyOnboardingPayment() {
             ) : !stripeEnabled ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 Card entry isn&apos;t configured in this environment. You can continue and add a
-                payment method later from Billing.
+                payment method later from ClearCaseIQ plan &amp; payments.
               </div>
             ) : savedCard ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
@@ -119,17 +118,16 @@ export default function AttorneyOnboardingPayment() {
 
           <div className="mt-6 flex items-center justify-between gap-3">
             {stripeEnabled && !savedCard ? (
-              <p className="text-xs text-gray-500">A saved card is required to accept cases.</p>
+              <p className="text-xs text-gray-500">You can skip this step and add a card before accepting a case.</p>
             ) : (
               <span />
             )}
             <button
               type="button"
               onClick={goNext}
-              disabled={stripeEnabled && !savedCard}
-              className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
             >
-              Continue to dashboard
+              {savedCard ? 'Continue to dashboard' : 'Skip for now'}
             </button>
           </div>
         </div>

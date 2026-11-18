@@ -73,6 +73,13 @@ export const uploadLimiter = build(
   'Too many uploads. Please wait a few minutes and try again.',
 )
 
+/** Admin-triggered direct email/SMS/push delivery and delivery-log reads. */
+export const notificationLimiter = build(
+  'notifications',
+  120,
+  'Too many notification requests. Please wait a few minutes and try again.',
+)
+
 /**
  * The pre-registration State Bar preview.
  *

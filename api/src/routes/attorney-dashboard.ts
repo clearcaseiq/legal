@@ -990,7 +990,13 @@ export async function getAuthorizedLead(
   // endpoints that change case data rather than just read it. `staffCan` opens
   // a write to accepted staff whose role holds that permission group ('any' for
   // collaboration every case-team member may do); attorneys are not affected.
-  options: { allowFirmMember?: boolean; firmMemberWrite?: boolean; staffCan?: CaseActionGroup | 'any' } = {}
+  // `allowMarketplaceRead` is reserved for explicitly deidentified offer views.
+  options: {
+    allowFirmMember?: boolean
+    firmMemberWrite?: boolean
+    staffCan?: CaseActionGroup | 'any'
+    allowMarketplaceRead?: boolean
+  } = {}
 ) {
   if (options.staffCan) {
     options = { ...options, allowFirmMember: true, firmMemberWrite: true }
@@ -1064,10 +1070,12 @@ export async function getAuthorizedLead(
 
   const isShared = lead.assignmentType === 'shared'
   const isAssigned = lead.assignedAttorneyId === attorney.id
+  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || 'GET').toUpperCase())
   const intro = await prisma.introduction.findFirst({
     where: {
       assessmentId: lead.assessmentId,
-      attorneyId: attorney.id
+      attorneyId: attorney.id,
+      status: isWrite ? 'ACCEPTED' : { in: ['PENDING', 'ACCEPTED'] },
     }
   })
   const ethicalWall = await prisma.ethicalWall.findFirst({
@@ -1110,6 +1118,8 @@ export async function getAuthorizedLead(
       ]
     }
   })
+  const currentIntro = !!intro
+  const writableShare = !!acceptedShare && acceptedShare.accessLevel === 'edit'
 
   if (ethicalWall) {
     return { error: { status: 403, message: 'Access restricted by ethical wall' } }
@@ -1120,15 +1130,22 @@ export async function getAuthorizedLead(
   // an unverified account must not read PII before its bar status is confirmed.
   // A real relationship (assigned, introduced, same firm, accepted share) still
   // grants access regardless, since that attorney has already engaged the case.
-  const sharedAccess = isShared && attorney.isVerified
+  const sharedAccess =
+    !isWrite && options.allowMarketplaceRead === true && isShared && attorney.isVerified
 
   const firmGrant =
-    !sharedAccess && !isAssigned && !intro && !sameFirm && !acceptedShare
+    !isWrite && !sharedAccess && !isAssigned && !currentIntro && !sameFirm && !acceptedShare
       ? await firmGrantsLeadRead(lead, attorney.id, await resolveFirmVisibility(req, attorney))
       : false
+  const shareAccess = isWrite ? writableShare : !!acceptedShare
 
-  if (!sharedAccess && !isAssigned && !intro && !sameFirm && !acceptedShare && !firmGrant) {
-    return { error: { status: 403, message: 'Not authorized to view this lead' } }
+  if (!sharedAccess && !isAssigned && !currentIntro && !sameFirm && !shareAccess && !firmGrant) {
+    return {
+      error: {
+        status: 403,
+        message: isWrite ? 'Not authorized to modify this lead' : 'Not authorized to view this lead',
+      },
+    }
   }
 
   return { attorney, lead }
@@ -18722,7 +18739,10 @@ router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req:
 // Get single lead (for mobile app)
 router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    const auth = await getAuthorizedLead(req, req.params.leadId, {
+      allowFirmMember: true,
+      allowMarketplaceRead: true,
+    })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }

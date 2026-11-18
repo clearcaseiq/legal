@@ -175,8 +175,8 @@
         "description": "Directorio de partes"
       },
       "billing": {
-        "label": "Facturación",
-        "description": "Honorarios, facturas, costos"
+        "label": "Facturación de clientes",
+        "description": "Honorarios, facturas y costos de clientes"
       },
       "firm": {
         "label": "Panel del bufete",

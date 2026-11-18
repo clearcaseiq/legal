@@ -36,15 +36,18 @@ export interface AssessmentAccessResult {
   anonymous?: boolean
 }
 
+export type AssessmentAccessMode = 'read' | 'write'
+
 /**
- * Whether `user` may read `assessmentId`.
+ * Whether `user` may access `assessmentId`.
  *
  * `user` is the decoded request user, or null/undefined for an unauthenticated
  * caller (i.e. behind `optionalAuthMiddleware`).
  */
-export async function canReadAssessment(
+export async function canAccessAssessment(
   assessmentId: string,
   user: { id: string; email?: string; role?: string } | null | undefined,
+  mode: AssessmentAccessMode = 'read',
 ): Promise<AssessmentAccessResult> {
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
@@ -112,20 +115,41 @@ export async function canReadAssessment(
   const lead = assessment.leadSubmission
   if (attorney) {
     if (lead?.assignedAttorneyId === attorney.id) return { allowed: true }
-    // Attorneys who were not assigned reach a case only through the offer that
-    // was actually made to them, so require an introduction on this assessment.
+    // A live marketplace offer permits the deidentified review experience, but
+    // it is not authority to mutate the claimant's case. Only an accepted
+    // relationship may write before the assignment record catches up.
+    //
+    // Terminal offers must confer no access at all. Without the status filter,
+    // attorneys retained access to the case and its evidence after declining or
+    // after the response window expired.
     const intro = await prisma.introduction.findFirst({
-      where: { assessmentId, attorneyId: attorney.id },
-      select: { id: true },
+      where: {
+        assessmentId,
+        attorneyId: attorney.id,
+        status: mode === 'write'
+          ? 'ACCEPTED'
+          : { in: ['PENDING', 'ACCEPTED'] },
+      },
+      select: { id: true, status: true },
     })
     if (intro) return { allowed: true }
   }
 
+  // Firm access comes only from an active FirmMember row. Attorney.lawFirmId is
+  // denormalized profile data and can outlive suspension/removal from the firm;
+  // treating it as membership let a stale profile keep reading firm cases.
   const firmIds = new Set(memberships.map((m) => m.lawFirmId))
-  if (attorney?.lawFirmId) firmIds.add(attorney.lawFirmId)
   if (assessment.lawFirmId && firmIds.has(assessment.lawFirmId)) return { allowed: true }
 
   return { allowed: false, status: 403, message: 'Not authorized to view this assessment' }
+}
+
+/** Backward-compatible read-only entry point for callers that only fetch data. */
+export async function canReadAssessment(
+  assessmentId: string,
+  user: { id: string; email?: string; role?: string } | null | undefined,
+): Promise<AssessmentAccessResult> {
+  return canAccessAssessment(assessmentId, user, 'read')
 }
 
 /**
@@ -152,8 +176,13 @@ export async function enforceAssessmentReadAccess(params: {
   user: { id: string; email?: string; role?: string } | null | undefined
   res: Response
   route: string
+  access?: AssessmentAccessMode
 }): Promise<boolean> {
-  const decision = await canReadAssessment(params.assessmentId, params.user)
+  const decision = await canAccessAssessment(
+    params.assessmentId,
+    params.user,
+    params.access ?? 'read',
+  )
   if (decision.allowed) {
     if (decision.anonymous) noIndexAssessmentResponse(params.res)
     return true

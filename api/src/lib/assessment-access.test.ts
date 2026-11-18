@@ -4,7 +4,7 @@ vi.mock('./prisma', () => import('../test/universalPrismaMock'))
 
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
-import { canReadAssessment } from './assessment-access'
+import { canAccessAssessment, canReadAssessment } from './assessment-access'
 
 function assessment(overrides: Partial<any> = {}) {
   return {
@@ -129,14 +129,67 @@ describe('canReadAssessment', () => {
     expect(result.allowed).toBe(true)
   })
 
-  it('allows an attorney who was offered the case', async () => {
+  it('allows an attorney with a pending offer to review the case', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
       assessment({ leadSubmission: { assignedAttorneyId: 'other', assignmentType: 'shared', status: 'submitted' } }) as any,
     )
     vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-2', lawFirmId: null } as any)
-    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({ id: 'intro-1' } as any)
+    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({ id: 'intro-1', status: 'PENDING' } as any)
 
     const result = await canReadAssessment('assess-1', { id: 'user-att2', email: 'b@f.com' })
+
+    expect(result.allowed).toBe(true)
+    expect(prisma.introduction.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ['PENDING', 'ACCEPTED'] } }),
+    }))
+  })
+
+  it('does not let a pending marketplace offer authorize a write', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(
+      assessment({ leadSubmission: { assignedAttorneyId: 'other', assignmentType: 'shared', status: 'submitted' } }) as any,
+    )
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-2', lawFirmId: null } as any)
+    vi.mocked(prisma.introduction.findFirst).mockResolvedValue(null as any)
+
+    const result = await canAccessAssessment(
+      'assess-1',
+      { id: 'user-att2', email: 'b@f.com' },
+      'write',
+    )
+
+    expect(result).toMatchObject({ allowed: false, status: 403 })
+    expect(prisma.introduction.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'ACCEPTED' }),
+    }))
+  })
+
+  it.each(['DECLINED', 'EXPIRED'])('refuses an attorney whose introduction is %s', async (status) => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment() as any)
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-2', lawFirmId: null } as any)
+    vi.mocked(prisma.introduction.findFirst).mockResolvedValue(null as any)
+
+    const result = await canReadAssessment('assess-1', { id: 'user-att2', email: 'b@f.com' })
+
+    expect(result).toMatchObject({ allowed: false, status: 403 })
+    expect(prisma.introduction.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ['PENDING', 'ACCEPTED'] } }),
+    }))
+  })
+
+  it('allows an accepted introduction to authorize a write', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment() as any)
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-2', lawFirmId: null } as any)
+    vi.mocked(prisma.introduction.findFirst).mockImplementation(async (args: any) =>
+      args?.where?.status === 'ACCEPTED'
+        ? ({ id: 'intro-1', status: 'ACCEPTED' } as any)
+        : null,
+    )
+
+    const result = await canAccessAssessment(
+      'assess-1',
+      { id: 'user-att2', email: 'b@f.com' },
+      'write',
+    )
 
     expect(result.allowed).toBe(true)
   })
@@ -166,6 +219,16 @@ describe('canReadAssessment', () => {
     vi.mocked(prisma.firmMember.findMany).mockResolvedValue([{ lawFirmId: 'firm-2' }] as any)
 
     const result = await canReadAssessment('assess-1', { id: 'user-staff' })
+
+    expect(result).toMatchObject({ allowed: false, status: 403 })
+  })
+
+  it('does not treat stale Attorney.lawFirmId as active firm membership', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue(assessment({ lawFirmId: 'firm-1' }) as any)
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-4', lawFirmId: 'firm-1' } as any)
+    vi.mocked(prisma.firmMember.findMany).mockResolvedValue([] as any)
+
+    const result = await canReadAssessment('assess-1', { id: 'user-att4', email: 'stale@f.com' })
 
     expect(result).toMatchObject({ allowed: false, status: 403 })
   })
