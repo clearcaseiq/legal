@@ -41,15 +41,42 @@ export function claimantPortalPath(token: string): string {
   return `/respond/documents/${encodeURIComponent(token)}`
 }
 
+/** Supporting Documents step for a case the visitor already has an id for. */
+export function supportingDocumentsPath(
+  assessmentId: string,
+  options?: {
+    from?: string | null
+    returnTo?: string | null
+    focus?: string | null
+    requestId?: string | null
+  },
+): string {
+  const qs = new URLSearchParams({ assessment: assessmentId, step: 'evidence' })
+  if (options?.from) qs.set('from', options.from)
+  if (options?.returnTo) qs.set('returnTo', options.returnTo)
+  if (options?.focus) qs.set('focus', options.focus)
+  if (options?.requestId) qs.set('requestId', options.requestId)
+  const q = qs.toString()
+  return q ? `/intake2?${q}` : '/intake2'
+}
+
+/** Case Snapshot "Upload evidence" target. Same screen as Add records. */
+export function caseReportEvidencePath(assessmentId?: string | null): string {
+  const id = (assessmentId || '').trim()
+  if (!id || id === 'undefined' || id === 'null') return '/intake2?step=evidence'
+  return supportingDocumentsPath(id)
+}
+
 /**
- * Where an `/evidence-upload/:id` link sends a visitor with no session.
+ * Portal destination for a document-request link opened with no session.
  *
- * Returns null when there is nothing to go on and the caller should ask them to
- * sign in. A document-request link is different: its `?token=` is the request's
+ * Returns null when the link has no `?token=`. That token is the request's
  * `secureToken`, which the portal accepts on its own, so the person can upload
- * without an account. That matters because most people opening these have no
- * account — an imported case's claimant has never registered — and the message
- * that carried the link promised them somewhere to put their documents.
+ * without an account. Most people opening these have no account — an imported
+ * case's claimant has never registered — and the message that carried the link
+ * promised them somewhere to put their documents. A null result means this is
+ * not a document-request link; the case snapshot upload goes to Supporting
+ * Documents instead of a sign-in screen.
  */
 export function unauthenticatedEvidenceUploadDestination(token: string | null | undefined): string | null {
   const trimmed = (token || '').trim()

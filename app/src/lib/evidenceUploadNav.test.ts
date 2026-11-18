@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  caseReportEvidencePath,
   claimantPortalPath,
   safeInternalReturnTo,
+  supportingDocumentsPath,
   unauthenticatedEvidenceUploadDestination,
 } from './evidenceUploadNav'
 
@@ -19,7 +21,7 @@ describe('opening a document-request link with no session', () => {
     expect(unauthenticatedEvidenceUploadDestination('tok-1')).toBe('/respond/documents/tok-1')
   })
 
-  it('asks for a sign-in only when there is no token to go on', () => {
+  it('returns null when the link has no portal token', () => {
     expect(unauthenticatedEvidenceUploadDestination(null)).toBeNull()
     expect(unauthenticatedEvidenceUploadDestination('')).toBeNull()
     expect(unauthenticatedEvidenceUploadDestination('   ')).toBeNull()
@@ -27,6 +29,20 @@ describe('opening a document-request link with no session', () => {
 
   it('escapes the token rather than pasting it into a path', () => {
     expect(claimantPortalPath('a/b?c')).toBe('/respond/documents/a%2Fb%3Fc')
+  })
+})
+
+describe('Case Snapshot upload with no session', () => {
+  it('opens Supporting Documents, the same screen as Add records', () => {
+    expect(caseReportEvidencePath('asm-1')).toBe('/intake2?assessment=asm-1&step=evidence')
+    expect(supportingDocumentsPath('asm-1', { from: 'results', returnTo: '/results/asm-1' })).toBe(
+      '/intake2?assessment=asm-1&step=evidence&from=results&returnTo=%2Fresults%2Fasm-1',
+    )
+  })
+
+  it('still opens Supporting Documents when the id is missing', () => {
+    expect(caseReportEvidencePath(null)).toBe('/intake2?step=evidence')
+    expect(caseReportEvidencePath('undefined')).toBe('/intake2?step=evidence')
   })
 })
 

@@ -664,7 +664,7 @@ export function ResultsReportDetails({
         </ul>
         <p className="text-sm text-slate-600 mb-4">{t('results.report.documentationCompleteness')} <span className="font-semibold text-slate-800">{evidenceCompletionPercent}%</span></p>
         <Link
-          to={`/evidence-upload/${assessmentId}`}
+          to={`/intake2?assessment=${encodeURIComponent(assessmentId)}&step=evidence`}
           className="inline-flex items-center px-4 py-2.5 text-sm font-semibold text-white bg-brand-700 rounded-lg hover:bg-brand-800 shadow-sm transition-colors"
         >
           <Upload className="h-4 w-4 mr-2" />

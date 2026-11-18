@@ -16,6 +16,7 @@ import {
   plaintiffDashboardReturnTo,
   rememberEvidenceReturnTo,
   safeInternalReturnTo,
+  supportingDocumentsPath,
   unauthenticatedEvidenceUploadDestination,
 } from './lib/evidenceUploadNav'
 // Definitions only: importing from `seoTopicHubs` here would pull the full text
@@ -160,37 +161,41 @@ const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const Integrations = lazy(() => import('./pages/Integrations'))
 const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
+function evidenceUploadOptions(params: URLSearchParams) {
+  return {
+    from: params.get('from'),
+    returnTo: safeInternalReturnTo(params.get('returnTo'), ''),
+    focus: params.get('focus'),
+    requestId: params.get('requestId'),
+  }
+}
+
+function persistEvidenceUploadReturn(assessmentId: string, params: URLSearchParams) {
+  const { returnTo, from } = evidenceUploadOptions(params)
+  // Prefer an explicit returnTo (e.g. dashboard?tab=tasks) over the generic case link.
+  if (returnTo) rememberEvidenceReturnTo(returnTo)
+  else if (from === 'dashboard') rememberEvidenceReturnTo(plaintiffDashboardReturnTo(assessmentId))
+  else clearEvidenceReturnTo()
+}
+
 // The standalone Evidence Upload page is retired in favor of the richer intake
 // "Supporting Documents" experience (readiness scoring, wrong-file & name-mismatch
 // checks, HIPAA gate). Every /evidence-upload/:id link now forwards there.
 function EvidenceUploadRedirect() {
   const { assessmentId } = useParams()
-  const location = useLocation()
   const [searchParams] = useSearchParams()
-  const from = searchParams.get('from')
   const token = searchParams.get('token')
-  const returnTo = safeInternalReturnTo(searchParams.get('returnTo'), '')
   if (!assessmentId) return <Navigate to="/assess" replace />
 
-  // This link is mailed to claimants, so it is usually opened from a mail client
-  // with no session.
+  // An attorney's document request carries the portal's own token, so a visitor
+  // with no session can upload without an account.
   if (!hasValidAuthToken()) {
-    // An attorney's document request carries the portal's own token, so the
-    // visitor can upload without an account. Sending them to sign in instead
-    // was a wall in front of people who mostly have nothing to sign in with.
     const portal = unauthenticatedEvidenceUploadDestination(token)
     if (portal) return <Navigate to={portal} replace />
-
-    // Without a token nothing here can authenticate, and both destinations
-    // below need a session — /intake2 would render the wizard with no case
-    // attached, and /dashboard is plaintiff-gated. The query string rides along
-    // so the visitor lands back on this same URL afterwards.
-    return <Navigate to={getLoginRedirect(`${location.pathname}${location.search}`)} replace />
   }
 
-  // Attorney-sent document-request emails use ?token=…. Land on Tasks, where
-  // attorney document requests are listed (Requested Documents tab was folded in).
-  if (token) {
+  // Signed-in document-request emails land on Tasks, where those requests are listed.
+  if (hasValidAuthToken() && token) {
     const qs = new URLSearchParams({
       case: assessmentId,
       tab: 'tasks',
@@ -199,24 +204,11 @@ function EvidenceUploadRedirect() {
     return <Navigate to={`/dashboard?${qs.toString()}`} replace />
   }
 
-  // Persist return target across the replace navigation into /intake2. Prefer an
-  // explicit returnTo (e.g. dashboard?tab=tasks) over the generic case link.
-  if (returnTo) {
-    rememberEvidenceReturnTo(returnTo)
-  } else if (from === 'dashboard') {
-    rememberEvidenceReturnTo(plaintiffDashboardReturnTo(assessmentId))
-  } else {
-    clearEvidenceReturnTo()
-  }
-
-  const qs = new URLSearchParams({ assessment: assessmentId, step: 'evidence' })
-  if (from) qs.set('from', from)
-  if (returnTo) qs.set('returnTo', returnTo)
-  const focus = searchParams.get('focus')
-  if (focus) qs.set('focus', focus)
-  const requestId = searchParams.get('requestId')
-  if (requestId) qs.set('requestId', requestId)
-  return <Navigate to={`/intake2?${qs.toString()}`} replace />
+  // Case Snapshot "Upload evidence" uses this URL. The person is already reading
+  // the report, often before any account exists, so this goes straight to
+  // Supporting Documents. Asking them to sign in was the wrong screen.
+  persistEvidenceUploadReturn(assessmentId, searchParams)
+  return <Navigate to={supportingDocumentsPath(assessmentId, evidenceUploadOptions(searchParams))} replace />
 }
 // The standalone per-case documents page is retired in favor of the case file's
 // Documents tab inside the workspace shell. Old /attorney-dashboard/documents/:leadId
