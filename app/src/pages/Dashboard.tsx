@@ -2192,20 +2192,28 @@ export default function Dashboard() {
         )}
 
         {activeAssessment && (() => {
-          // Profile stays routable (the header menu links to ?tab=profile) but has no tab of its own.
-          const visibleTabs = TABS.filter(
-            (tab) => tab.id !== 'profile' && (tab.id !== 'attorney' || !attorneyMatched)
-          )
+          // Before a lawyer accepts, the claimant needs status, records, and their
+          // account. Tasks, journal, value, attorney review, and the case list
+          // stay reachable by URL, and return to the nav once someone accepts.
+          // Profile stays off the nav after that: the header menu already links to it.
+          const visibleTabs = attorneyMatched
+            ? TABS.filter((tab) => tab.id !== 'profile' && tab.id !== 'attorney')
+            : TABS.filter((tab) => tab.id === 'dashboard' || tab.id === 'documents' || tab.id === 'profile')
+          const tabGridClass = visibleTabs.length <= 3
+            ? 'grid grid-cols-1 gap-2.5 sm:grid-cols-3'
+            : `grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 7 ? '2xl:grid-cols-7' : '2xl:grid-cols-6'}`
           return (
           <nav className="sticky top-0 z-40 -mx-4 bg-slate-50 px-4 pb-2 pt-2 dark:bg-slate-950 sm:-mx-6 sm:px-6 md:top-20">
             <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] transition-colors dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-none sm:p-4">
-              <div data-tour="client-tabs" className={`grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 ${visibleTabs.length >= 7 ? '2xl:grid-cols-7' : '2xl:grid-cols-6'}`}>
+              <div data-tour="client-tabs" className={tabGridClass}>
                 {visibleTabs.map((tab) => {
                   const badge =
                     tab.id === 'tasks'
                       ? actionItemsCount + pendingDocumentRequests.length
                       : 0
                   const tooltipId = `dashboard-tab-tip-${tab.id}`
+                  const labelKey = !attorneyMatched && tab.id === 'dashboard' ? 'plaintiffDashboard.tabs.status' : tab.labelKey
+                  const descriptionKey = !attorneyMatched && tab.id === 'dashboard' ? 'plaintiffDashboard.tabDescriptions.status' : `plaintiffDashboard.tabDescriptions.${tab.id}`
                 return (
                 <button
                   key={tab.id}
@@ -2220,7 +2228,7 @@ export default function Dashboard() {
                   }`}
                 >
                   {tab.icon}
-                      <span className="truncate">{t(tab.labelKey)}</span>
+                      <span className="truncate">{t(labelKey)}</span>
                   {badge > 0 && (
                         <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-xs font-bold text-white">{badge}</span>
                   )}
@@ -2229,8 +2237,8 @@ export default function Dashboard() {
                         role="tooltip"
                         className="pointer-events-none invisible absolute left-1/2 top-full z-50 mt-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-normal leading-relaxed text-white opacity-0 shadow-lg transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-hover:delay-300 group-focus-visible:visible group-focus-visible:opacity-100 dark:bg-slate-700"
                       >
-                        <span className="block font-semibold">{t(tab.labelKey)}</span>
-                        {t(`plaintiffDashboard.tabDescriptions.${tab.id}`)}
+                        <span className="block font-semibold">{t(labelKey)}</span>
+                        {t(descriptionKey)}
                       </span>
                 </button>
                 )

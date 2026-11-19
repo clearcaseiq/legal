@@ -3854,6 +3854,11 @@ Checklist:
                     removed={removedContactOrderAttorneys}
                     firstChoiceChosen={firstChoiceChosen}
                     readOnly={isSharedReadOnly}
+                    venueLabel={
+                      venueState && venueState !== 'Unknown'
+                        ? (venueState === 'CA' ? t('results.calc.california') : venueState)
+                        : undefined
+                    }
                     t={t}
                     onChooseFirst={chooseFirstAttorney}
                     onReorder={reorderRankedAttorney}

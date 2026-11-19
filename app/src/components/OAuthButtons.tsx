@@ -8,9 +8,11 @@ interface OAuthButtonsProps {
   disabled?: boolean
   emphasizeGoogle?: boolean
   role?: 'plaintiff' | 'attorney'
+  /** Rendered as an "or" rule above the buttons, and only when a provider shows. */
+  dividerLabel?: string
 }
 
-export default function OAuthButtons({ disabled = false, emphasizeGoogle = false, role = 'plaintiff' }: OAuthButtonsProps) {
+export default function OAuthButtons({ disabled = false, emphasizeGoogle = false, role = 'plaintiff', dividerLabel }: OAuthButtonsProps) {
   const { t } = useLanguage()
   const [loading, setLoading] = useState<'google' | 'apple' | 'microsoft' | null>(null)
   // Only render providers the backend actually has configured. Previously the
@@ -78,6 +80,16 @@ export default function OAuthButtons({ disabled = false, emphasizeGoogle = false
 
   return (
     <div className="space-y-3">
+      {dividerLabel && (
+        <div className="relative py-1" role="separator">
+          <div className="absolute inset-0 flex items-center" aria-hidden>
+            <div className="w-full border-t border-slate-200" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase tracking-wide">
+            <span className="bg-white px-3 font-medium text-slate-500">{dividerLabel}</span>
+          </div>
+        </div>
+      )}
       {/* Google Login Button */}
       {showGoogle && (
       <button

@@ -2905,6 +2905,8 @@
       "contactSelected": "Contact {{count}} selected attorneys",
       "contactTheseAttorneys": "We’ll contact these {{count}} attorneys, in this order",
       "contactThisAttorney": "We’ll contact this attorney",
+      "onlyVerifiedAttorney": "This is the only verified attorney in {{state}} who matches this case right now.",
+      "onlyVerifiedAttorneyAnywhere": "This is the only verified attorney who matches this case right now.",
       "couldNotLoadMatches": "We could not load attorney matches",
       "couldNotLoadMatchesBody1": "You can still send your case. We will show you which attorneys we suggest and wait for your approval before contacting any of them. Or",
       "couldNotLoadMatchesBody2": "to choose them now.",
@@ -3259,6 +3261,7 @@
     },
     "tabs": {
       "dashboard": "Dashboard",
+      "status": "Status",
       "tasks": "Tasks",
       "documents": "Documents",
       "requestedDocuments": "Requested Documents",
@@ -3270,6 +3273,8 @@
     },
     "tabDescriptions": {
       "dashboard": "Your case at a glance: where it stands, what happens next, and recent updates.",
+      "status": "Where your case stands, what happens next, and how to add records.",
+      "profile": "Your account details.",
       "tasks": "Things to do for your case, including documents an attorney has asked for.",
       "documents": "Upload and manage your medical records, bills, photos, and other evidence.",
       "attorney": "Follow your case through attorney review, from submission to consultation.",

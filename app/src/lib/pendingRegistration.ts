@@ -82,6 +82,12 @@ export function getCaseClaimToken(assessmentId: string | null | undefined): stri
   return readCaseClaimTokens()[assessmentId.trim()] || null
 }
 
+/** The case this browser most recently sent for review as a guest. */
+export function getLatestClaimedCaseId(): string | null {
+  const ids = Object.keys(readCaseClaimTokens())
+  return ids.length ? ids[ids.length - 1] : null
+}
+
 export function getAllCaseClaimTokens(): string[] {
   return Object.values(readCaseClaimTokens()).filter(Boolean)
 }

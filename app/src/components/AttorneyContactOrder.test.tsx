@@ -236,10 +236,21 @@ describe('a drag handle', () => {
 
 describe('a single match', () => {
   it('asks for no decision at all', async () => {
-    await mount({ attorneys: [ATTORNEYS[0]], firstChoiceChosen: false })
+    await mount({ attorneys: [ATTORNEYS[0]], firstChoiceChosen: false, venueLabel: 'California' })
     expect(container.textContent).toContain('results.calc.contactThisAttorney')
+    expect(container.textContent).toContain('results.calc.onlyVerifiedAttorney:{"state":"California"}')
     expect(buttonsLabelled('results.contactOrder.selectFirst')).toHaveLength(0)
     expect(buttonsLabelled('results.calc.moveDown')).toHaveLength(0)
+  })
+
+  it('does not call the last one left the only match after the claimant removed others', async () => {
+    await mount({
+      attorneys: [ATTORNEYS[0]],
+      removed: [{ id: ATTORNEYS[1].id, name: ATTORNEYS[1].name }],
+      venueLabel: 'California',
+    })
+    expect(container.textContent).toContain('results.calc.contactThisAttorney')
+    expect(container.textContent).not.toContain('results.calc.onlyVerifiedAttorney')
   })
 })
 

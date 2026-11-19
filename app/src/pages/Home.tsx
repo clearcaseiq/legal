@@ -4,8 +4,11 @@ import LocaleLink from '../components/LocaleLink'
 import { START_ASSESSMENT_HREF } from '../data/appRoutes'
 import { caseTypeHubs } from '../data/caseTypeHubDefs'
 import { DEFAULT_LANGUAGE } from '../i18n'
+import { localeHome } from '../i18n/routing'
 import { trackCtaClick } from '../lib/ctaTracking'
-import { BarChart3, ClipboardList, Users } from 'lucide-react'
+import { getStoredRole } from '../lib/auth'
+import { getLatestClaimedCaseId } from '../lib/pendingRegistration'
+import { BarChart3, ClipboardList, MessageCircle, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
 import FaqSection from '../components/FaqSection'
@@ -25,8 +28,8 @@ import {
   CheckCircleIcon,
 } from '../components/StartupIcons'
 
-// Icons for the three How-It-Works steps — mirrors the treatment on /how-it-works.
-const STEP_ICONS = [ClipboardList, BarChart3, Users]
+// Icons for the How-It-Works steps — mirrors the treatment on /how-it-works.
+const STEP_ICONS = [ClipboardList, BarChart3, Users, MessageCircle]
 
 export default function Home() {
   const { t, language } = useLanguage()
@@ -45,6 +48,19 @@ export default function Home() {
     )
     observer.observe(el)
     return () => observer.disconnect()
+  }, [])
+
+  // Resolved after hydration: the server has no storage, so it always renders
+  // the intake. A signed-in claimant goes to their dashboard, and a guest who
+  // already sent a case goes back to that report.
+  const [continueHref, setContinueHref] = useState('/assess')
+  useEffect(() => {
+    if (getStoredRole() === 'plaintiff') {
+      setContinueHref('/dashboard')
+      return
+    }
+    const sentCaseId = getLatestClaimedCaseId()
+    if (sentCaseId) setContinueHref(`/results/${encodeURIComponent(sentCaseId)}`)
   }, [])
 
   // `slug` preselects the matching answer on the intake's first step.
@@ -117,7 +133,7 @@ export default function Home() {
                   {t('home.heroItem3')}
                 </li>
               </ul>
-              <div className="flex flex-col items-center lg:items-start gap-3">
+              <div className="flex flex-col items-center gap-3 sm:flex-row lg:items-center lg:justify-start sm:justify-center">
                 <Link
                   ref={heroCtaRef}
                   to={START_ASSESSMENT_HREF}
@@ -128,15 +144,38 @@ export default function Home() {
                   {t('common.startAssessment')}
                 </Link>
                 <Link
-                  to="/assess"
+                  to={continueHref}
                   onClick={() => trackCtaClick('hero_resume')}
-                  className="group inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm font-medium text-slate-500 underline-offset-4 transition-colors hover:text-brand-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:text-slate-400 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900"
+                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-4 text-base font-semibold text-slate-800 transition-colors hover:border-brand-300 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-brand-600 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900 sm:py-5"
                 >
-                  {t('common.alreadyStartedResume')}
-                  <span className="ml-1 transition-transform group-hover:translate-x-0.5" aria-hidden>→</span>
+                  {t('home.continueCase')}
                 </Link>
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
+              <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+                {t('home.heroDeadline')}{' '}
+                {/* The checker is English-only, like the case guides below. */}
+                {language === DEFAULT_LANGUAGE && (
+                  <Link
+                    to="/tools/california-sol-checker"
+                    className="font-semibold text-brand-700 underline underline-offset-4 hover:text-brand-800 dark:text-brand-300"
+                  >
+                    {t('home.heroDeadlineLink')}
+                  </Link>
+                )}
+              </p>
+              {language === DEFAULT_LANGUAGE && (
+                <p className="mt-2 text-sm">
+                  <Link
+                    to={localeHome('es')}
+                    lang="es"
+                    hrefLang="es"
+                    className="font-semibold text-brand-700 underline underline-offset-4 hover:text-brand-800 dark:text-brand-300"
+                  >
+                    En español
+                  </Link>
+                </p>
+              )}
               <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/70 px-3.5 py-1.5 text-xs font-medium text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
                 <ShieldCheckIcon className="h-4 w-4 flex-shrink-0" aria-hidden />
                 <span>{t('home.securityBadge')}</span>
@@ -201,8 +240,8 @@ export default function Home() {
           <p className="text-center text-slate-600 dark:text-slate-400 max-w-2xl mx-auto mb-10">
             {t('home.howItWorksIntro')}
           </p>
-          <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[1, 2, 3].map((n, i) => {
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 max-w-6xl mx-auto">
+            {[1, 2, 3, 4].map((n, i) => {
               const StepIcon = STEP_ICONS[i]
               return (
                 <div
@@ -227,6 +266,10 @@ export default function Home() {
           </div>
         </section>
 
+        {/* One case-type section per page. English links the case guides, which
+            are English-only; the translated pages keep the chips, which start the
+            assessment with the type preselected. */}
+        {language !== DEFAULT_LANGUAGE && (
         <section className="py-8 rounded-2xl border border-slate-200/60 dark:border-slate-800 px-6 bg-gradient-to-b from-white to-slate-50/50 dark:from-slate-900/30 dark:to-slate-950/30">
           <h2 className="font-display text-2xl font-bold text-slate-900 dark:text-slate-50 text-center mb-6">
             {t('home.commonCaseTypes')}
@@ -247,9 +290,8 @@ export default function Home() {
             ))}
           </div>
         </section>
+        )}
 
-        {/* The guides are written in English only, so the translated home pages
-            leave them out rather than link a reader into another language. */}
         {language === DEFAULT_LANGUAGE && (
           <section className="py-8" aria-labelledby="case-guides-heading">
             <h2 id="case-guides-heading" className="font-display text-2xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
@@ -273,23 +315,6 @@ export default function Home() {
             </ul>
           </section>
         )}
-
-        {/* What the visitor gets is carried by the hero preview; this section
-            covers why to start here, rather than listing the same outputs again. */}
-        <section className="py-12 rounded-2xl border border-slate-200/60 dark:border-slate-800 px-6 bg-slate-50/90 dark:bg-slate-900/50">
-          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
-            {t('home.whyUse')}
-          </h2>
-          <p className="text-center text-slate-600 dark:text-slate-400 text-sm mb-6">{t('home.whyUseDesc')}</p>
-          <ul className="max-w-2xl mx-auto space-y-4">
-            {['whyUseItem1', 'whyUseItem2', 'whyUseItem3', 'whyUseItem4'].map((key) => (
-              <li key={key} className="flex items-start gap-3">
-                <CheckCircleIcon className="h-6 w-6 text-emerald-600 flex-shrink-0 mt-0.5" aria-hidden />
-                <span className="text-slate-700 dark:text-slate-300">{t(`home.${key}`)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
 
         {/* FAQ — visible counterpart to the FAQPage JSON-LD emitted above, so the
             page shows the same answers search engines are told about. */}
@@ -320,7 +345,7 @@ export default function Home() {
               {t('common.startAssessment')}
             </Link>
             <p className="mt-3 text-sm text-white/85">{t('home.finalCtaHelper')}</p>
-            <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/85">{t('home.deadlineNote')}</p>
+            <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/85">{t('home.heroDeadline')}</p>
           </div>
         </section>
 

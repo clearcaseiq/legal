@@ -111,13 +111,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
       // Only once an attorney is matched.
       { id: 'attorney', route: '/dashboard?tab=dashboard', target: 'client-attorney', waitMs: 1500 },
       { id: 'tabs', route: '/dashboard?tab=dashboard', target: 'client-tabs' },
-      { id: 'tasks', route: '/dashboard?tab=tasks', target: 'client-tab-tasks' },
+      // Tasks, value, journal, cases, and attorney review stay off the nav until a lawyer accepts.
+      { id: 'tasks', route: '/dashboard?tab=tasks', target: 'client-tab-tasks', waitMs: 400 },
       { id: 'documents', route: '/dashboard?tab=documents', target: 'client-tab-documents' },
-      // The Attorney Review tab disappears once an attorney is matched.
-      { id: 'attorneyReview', route: '/dashboard?tab=attorney', target: 'client-tab-attorney', waitMs: 1500 },
-      { id: 'value', route: '/dashboard?tab=value', target: 'client-tab-value' },
-      { id: 'journal', route: '/dashboard?tab=journal', target: 'client-tab-journal' },
-      { id: 'cases', route: '/dashboard?tab=cases', target: 'client-tab-cases' },
+      { id: 'attorneyReview', route: '/dashboard?tab=attorney', target: 'client-tab-attorney', waitMs: 400 },
+      { id: 'value', route: '/dashboard?tab=value', target: 'client-tab-value', waitMs: 400 },
+      { id: 'journal', route: '/dashboard?tab=journal', target: 'client-tab-journal', waitMs: 400 },
+      { id: 'cases', route: '/dashboard?tab=cases', target: 'client-tab-cases', waitMs: 400 },
       { id: 'messages', route: '/messaging', target: 'client-messages' },
       { id: 'help', route: '/dashboard?tab=dashboard', target: 'client-tour-button' },
     ],

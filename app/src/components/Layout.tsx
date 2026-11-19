@@ -191,6 +191,9 @@ export default function Layout({ children }: LayoutProps) {
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
   const isFocusRoute = ['/assess', '/intake', '/intake2'].includes(location.pathname)
+  // The attorney sign-in and signup pages link to each other and to the client
+  // login themselves; the header's client CTA and client Sign In only compete.
+  const isAttorneyAuthPage = ['/attorney-login', '/attorney-register'].includes(location.pathname)
   // Dense, grid/table/dashboard workspace screens render edge-to-edge instead of
   // the centered reading-width column used by the rest of the app. The calendar
   // additionally uses a tighter vertical rhythm (it manages its own height).
@@ -722,6 +725,7 @@ export default function Layout({ children }: LayoutProps) {
               ) : (
                 <>
                   {/* Sign In dropdown - hidden on mobile, in hamburger */}
+                  {!isAttorneyAuthPage && (
                   <div className="relative hidden lg:block" ref={signInRef}>
                     <button
                       onClick={() => setSignInOpen(!signInOpen)}
@@ -746,11 +750,12 @@ export default function Layout({ children }: LayoutProps) {
                       </div>
                     )}
                   </div>
+                  )}
 
-                  {/* Primary CTA - hidden during assessment/results/attorney registration */}
+                  {/* Primary CTA - hidden during assessment/results/attorney sign-in and registration */}
                   {!['/assess', '/intake', '/intake2', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
-                    !location.pathname.startsWith('/attorney-register') &&
+                    !isAttorneyAuthPage &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
                     <Link
                       to={navLinks.startAssessment}
@@ -791,9 +796,11 @@ export default function Layout({ children }: LayoutProps) {
               <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
                 <LanguageSwitcher />
               </div>
-              <Link to={navLinks.plaintiffLogin} className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
-                {t('common.signIn')}
-              </Link>
+              {!isAttorneyAuthPage && (
+                <Link to={navLinks.plaintiffLogin} className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
+                  {t('common.signIn')}
+                </Link>
+              )}
             </div>
           </div>
         )}
@@ -874,7 +881,7 @@ export default function Layout({ children }: LayoutProps) {
                   </div>
                   {!['/assess', '/intake', '/intake2', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
-                    !location.pathname.startsWith('/attorney-register') &&
+                    !isAttorneyAuthPage &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
                     <Link
                       to={navLinks.startAssessment}

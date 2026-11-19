@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom'
 import { loginAttorney } from '../lib/api-auth'
 import { getStoredRole, hasValidAuthToken } from '../lib/auth'
 import { safeInternalReturnTo } from '../lib/evidenceUploadNav'
-import BrandLogo from '../components/BrandLogo'
 import OAuthButtons from '../components/OAuthButtons'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
 import { useLanguage } from '../contexts/LanguageContext'
+import { CheckCircle } from 'lucide-react'
+
+// Only benefits the product delivers today: matching on practice area and
+// service area, the case assessment, and importing an existing caseload.
+const ATTORNEY_BENEFITS = [1, 2, 4]
 
 export default function AttorneyLogin() {
   const { t } = useLanguage()
@@ -60,12 +64,8 @@ export default function AttorneyLogin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-50/50 px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl">
-        <Link to="/" className="mb-8 flex justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
-          <BrandLogo size="lg" />
-        </Link>
-
-        <div className="grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl lg:grid-cols-[1fr_0.9fr]">
+      <div className="mx-auto max-w-4xl">
+        <div className="grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl lg:grid-cols-[1.4fr_1fr]">
           <section className="p-8 sm:p-10">
             <div>
               <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">{t('auth.attorneyLoginLabel')}</p>
@@ -74,12 +74,12 @@ export default function AttorneyLogin() {
             </div>
 
             {error && (
-              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4">
+              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4" role="alert">
                 <p className="text-sm text-red-700">{error}</p>
               </div>
             )}
 
-            <form className="mt-8 space-y-5" onSubmit={onSubmit}>
+            <form className="mt-8 space-y-5" onSubmit={onSubmit} noValidate>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                   {t('auth.emailShortLabel')}
@@ -88,25 +88,32 @@ export default function AttorneyLogin() {
                   <input
                     id="email"
                     type="email"
-                    autoComplete="email"
+                    autoComplete="username"
                     value={form.email}
                     onChange={(event) => {
                       setForm((current) => ({ ...current, email: event.target.value }))
                       setFieldErrors((current) => ({ ...current, email: undefined }))
                     }}
+                    aria-invalid={!!fieldErrors.email}
+                    aria-describedby={fieldErrors.email ? 'email-error' : undefined}
                     className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'}`}
-                    placeholder="you@example.com"
+                    placeholder={t('auth.attorneyEmailPlaceholder')}
                   />
                 </div>
                 {fieldErrors.email && (
-                  <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
+                  <p id="email-error" className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
                 )}
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                  {t('auth.passwordLabel')}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                    {t('auth.passwordLabel')}
+                  </label>
+                  <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+                    {t('auth.forgotPasswordShort')}
+                  </Link>
+                </div>
                 <div className="mt-1">
                   <PasswordInputWithReveal
                     id="password"
@@ -117,12 +124,13 @@ export default function AttorneyLogin() {
                       setFieldErrors((current) => ({ ...current, password: undefined }))
                     }}
                     disabled={isLoading}
+                    aria-invalid={!!fieldErrors.password}
+                    aria-describedby={fieldErrors.password ? 'password-error' : undefined}
                     className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'}`}
-                    placeholder="Password"
                   />
                 </div>
                 {fieldErrors.password && (
-                  <p className="mt-1 text-sm text-red-600">{fieldErrors.password}</p>
+                  <p id="password-error" className="mt-1 text-sm text-red-600">{fieldErrors.password}</p>
                 )}
               </div>
 
@@ -133,42 +141,30 @@ export default function AttorneyLogin() {
               >
                 {isLoading ? t('auth.signingIn') : t('auth.signInCta')}
               </button>
-
-              <div className="text-center">
-                <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:text-brand-800">
-                  {t('auth.forgotPasswordShort')}
-                </Link>
-              </div>
             </form>
 
             <div className="mt-6">
-              <OAuthButtons role="attorney" onError={setError} disabled={isLoading} />
+              <OAuthButtons role="attorney" onError={setError} disabled={isLoading} dividerLabel={t('auth.orDivider')} />
             </div>
 
-            <div className="mt-8 border-t border-slate-200 pt-6 text-center">
-              <p className="text-sm text-slate-500">{t('auth.newToApp')}</p>
-              <Link to="/attorney-register" className="mt-2 block font-semibold text-brand-700 hover:text-brand-800">
-                {t('auth.joinNetworkArrow')}
-              </Link>
-              <p className="mt-3 text-xs text-slate-500">
-                {t('auth.notAttorney')} <Link to="/login" className="font-medium text-brand-700 hover:text-brand-800">{t('auth.plaintiffLogin')}</Link>
-              </p>
-            </div>
+            <p className="mt-8 border-t border-slate-200 pt-6 text-center text-xs text-slate-500">
+              {t('auth.notAttorney')} <Link to="/login" className="font-medium text-brand-700 hover:text-brand-800">{t('auth.plaintiffLogin')}</Link>
+            </p>
           </section>
 
-          <aside className="bg-slate-950 p-8 text-white sm:p-10">
-            <p className="text-sm font-semibold uppercase tracking-wide text-brand-300">{t('auth.whyAttorneysJoin')}</p>
-            <h2 className="mt-3 text-3xl font-extrabold">{t('auth.growPractice')}</h2>
-            <div className="mt-8 space-y-4 text-sm text-slate-100">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <div key={n} className="rounded-xl bg-white/10 px-4 py-3">
+          <aside className="border-t border-slate-200 bg-slate-50 p-8 sm:p-10 lg:border-l lg:border-t-0">
+            <h2 className="text-lg font-bold text-slate-900">{t('auth.newToApp')}</h2>
+            <ul className="mt-4 space-y-3 text-sm text-slate-700">
+              {ATTORNEY_BENEFITS.map((n) => (
+                <li key={n} className="flex items-start gap-2">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
                   {t(`auth.attorneyBenefit${n}`)}
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
             <Link
               to="/attorney-register"
-              className="mt-8 inline-flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
+              className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-brand-700 bg-white px-4 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-50"
             >
               {t('auth.joinAttorneyNetwork')}
             </Link>

@@ -22,12 +22,11 @@ import {
 } from '../lib/attorneyRegisterValidation'
 import AttorneyRegisterProgress from '../components/AttorneyRegisterProgress'
 import AttorneyRegisterBenefits from '../components/AttorneyRegisterBenefits'
-import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import StateBarPreviewResult from '../components/StateBarPreviewResult'
 import { AttorneyAgreementCheckbox } from '../components/AttorneyAgreement'
 import { formatPhoneInput } from '../lib/phone'
-import { CheckCircle, FileText, Globe, CreditCard, Info } from 'lucide-react'
+import { CheckCircle, FileText, Globe, CreditCard } from 'lucide-react'
 
 // Single source of truth for attorney practice areas (the canonical claimType
 // enum used for routing/matching). Previously this page kept its own drifted
@@ -171,6 +170,13 @@ export default function AttorneyRegister() {
 
     const gatedFields = ATTORNEY_REGISTER_STEP_FIELDS[currentStep]
     if (gatedFields && setStepError(errors, gatedFields)) return
+
+    // The agreement is accepted on step 3, the last required step, so both
+    // ways to finish (there, or after license upload) have it.
+    if (currentStep === 3 && !agreementVersion) {
+      setAgreementError(t('attorneyReg.agreementRequired'))
+      return
+    }
 
     // Surface an already-registered email at step 1 rather than after the whole
     // multi-step form is filled out and finally submitted (#63).
@@ -365,8 +371,8 @@ export default function AttorneyRegister() {
     await submitRegistration()
   }
 
-  /** Finish signup without visiting or completing license verification. */
-  const skipLicenseAndFinish = async () => {
+  /** Finish from step 3 without visiting license verification. */
+  const finishWithoutLicense = async () => {
     setError(null)
     const validation = validateAttorneyRegisterInput(form, t)
     const gatedFields = ATTORNEY_REGISTER_STEP_FIELDS[currentStep]
@@ -390,6 +396,8 @@ export default function AttorneyRegister() {
   })()
   const visibleStates = filteredStates.slice(0, PRACTICE_STATE_LIMIT)
   const selectedStates = US_STATES.filter((state) => venues.includes(state.code))
+  // The field starts as "http://", which is not an entry.
+  const hasFirmWebsiteEntry = !['', 'http://', 'https://'].includes(form.firmWebsite.trim())
   const completionPercent = (() => {
     const fields: boolean[] = [
       !!form.firstName.trim(),
@@ -410,16 +418,9 @@ export default function AttorneyRegister() {
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-6">
-          <Link
-            to="/"
-            aria-label={t('common.appName')}
-            className="inline-flex justify-center mb-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-          >
-            <BrandLogo appName={t('common.appName')} size="lg" />
-          </Link>
-          <h2 className="text-xl font-extrabold font-display text-gray-900 dark:text-slate-100 tracking-tight">
+          <h1 className="text-xl font-extrabold font-display text-gray-900 dark:text-slate-100 tracking-tight">
             {t('attorneyReg.title')}
-          </h2>
+          </h1>
           <p className="mt-1 text-sm text-gray-600">
             {t('attorneyReg.alreadyHave')}{' '}
             <Link to="/attorney-login" className="font-medium text-brand-600 hover:text-brand-500">
@@ -464,9 +465,11 @@ export default function AttorneyRegister() {
                 <h3 className="text-lg font-medium text-gray-900">{t('attorneyReg.step1Title')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.firstNameLabel')}</label>
+                    <label htmlFor="reg-first-name" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.firstNameLabel')}</label>
                     <input
+                      id="reg-first-name"
                       type="text"
+                      autoComplete="given-name"
                       maxLength={80}
                       value={form.firstName}
                       onChange={(e) => updateField('firstName', e.target.value)}
@@ -475,9 +478,11 @@ export default function AttorneyRegister() {
                     {fieldErrors.firstName && <p className="mt-1 text-xs text-red-600">{fieldErrors.firstName}</p>}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.lastNameLabel')}</label>
+                    <label htmlFor="reg-last-name" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.lastNameLabel')}</label>
                     <input
+                      id="reg-last-name"
                       type="text"
+                      autoComplete="family-name"
                       maxLength={80}
                       value={form.lastName}
                       onChange={(e) => updateField('lastName', e.target.value)}
@@ -488,9 +493,11 @@ export default function AttorneyRegister() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.emailLabel')}</label>
+                    <label htmlFor="reg-email" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.emailLabel')}</label>
                     <input
+                      id="reg-email"
                       type="email"
+                      autoComplete="email"
                       maxLength={254}
                       value={form.email}
                       onChange={(e) => updateField('email', e.target.value)}
@@ -499,30 +506,35 @@ export default function AttorneyRegister() {
                     {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                    <label htmlFor="reg-phone" className="block text-sm font-medium text-gray-700 mb-1">
                       {t('attorneyReg.phoneLabel')}
-                      <span className="group relative">
-                        <Info className="h-3.5 w-3.5 cursor-help text-gray-400" aria-hidden />
-                        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-lg bg-gray-900 px-3 py-2.5 text-[11px] leading-snug font-normal text-white opacity-0 shadow-lg transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-                          {t('attorneyReg.smsTooltip')}
-                        </span>
-                      </span>
                     </label>
                     <input
+                      id="reg-phone"
                       type="tel"
+                      autoComplete="tel-national"
                       maxLength={20}
                       value={form.phone}
                       onChange={(e) => updateField('phone', formatPhoneInput(e.target.value))}
+                      aria-describedby="reg-phone-sms"
                       className={`input ${fieldErrors.phone ? 'border-red-500' : ''}`}
                       placeholder="(555) 123-4567"
                     />
                     {fieldErrors.phone && <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>}
+                    {/* SMS consent: the summary is always visible and the full terms open
+                        in place, so touch and keyboard users read them without leaving the form. */}
+                    <p id="reg-phone-sms" className="mt-1 text-xs leading-snug text-gray-500">{t('attorneyReg.smsSummary')}</p>
+                    <details className="mt-1 text-xs text-gray-500">
+                      <summary className="cursor-pointer font-medium text-brand-700 hover:text-brand-800">{t('attorneyReg.smsDetails')}</summary>
+                      <p className="mt-1 leading-snug">{t('attorneyReg.smsTooltip')}</p>
+                    </details>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.passwordLabel')}</label>
+                    <label htmlFor="reg-password" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.passwordLabel')}</label>
                     <PasswordInputWithReveal
+                      id="reg-password"
                       autoComplete="new-password"
                       value={form.password}
                       onChange={(e) => updateField('password', e.target.value)}
@@ -532,15 +544,17 @@ export default function AttorneyRegister() {
                     {fieldErrors.password && <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.firmNameLabel')}</label>
+                    <label htmlFor="reg-firm-name" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.firmNameLabel')}</label>
                     <input
+                      id="reg-firm-name"
                       type="text"
+                      autoComplete="organization"
                       required
                       maxLength={160}
                       value={form.firmName}
                       onChange={(e) => updateField('firmName', e.target.value)}
                       className="input"
-                      placeholder="Owens Law Firm"
+                      placeholder={t('attorneyReg.firmNamePlaceholder')}
                     />
                   </div>
                 </div>
@@ -549,9 +563,11 @@ export default function AttorneyRegister() {
                     lookup has to know which bar to ask. */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarLabel')}</label>
+                    <label htmlFor="reg-bar-number" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarLabel')}</label>
                     <input
+                      id="reg-bar-number"
                       type="text"
+                      autoComplete="off"
                       maxLength={40}
                       value={form.stateBarNumber}
                       onChange={(e) => {
@@ -560,12 +576,13 @@ export default function AttorneyRegister() {
                         setBarPreviewError(null)
                       }}
                       className="input"
-                      placeholder="e.g., 123456"
+                      placeholder={t('attorneyReg.barNumberPlaceholder')}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarStateLabel')}</label>
+                    <label htmlFor="reg-bar-state" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.stateBarStateLabel')}</label>
                     <select
+                      id="reg-bar-state"
                       value={form.stateBarState}
                       onChange={(e) => {
                         updateField('stateBarState', e.target.value)
@@ -610,7 +627,7 @@ export default function AttorneyRegister() {
                 <h3 className="text-lg font-medium text-gray-900">{t('attorneyReg.step2Title')}</h3>
                 <div>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <label className="block text-sm font-medium text-gray-700">{t('attorneyReg.casesWantLabel')}</label>
+                    <p id="reg-cases-label" className="block text-sm font-medium text-gray-700">{t('attorneyReg.casesWantLabel')}</p>
                     <label className="inline-flex cursor-pointer items-center gap-2">
                       <input
                         type="checkbox"
@@ -625,7 +642,7 @@ export default function AttorneyRegister() {
                     </label>
                   </div>
                   <p className="mb-2 text-xs text-gray-500">{t('attorneyReg.casesWantHelp')}</p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2" role="group" aria-labelledby="reg-cases-label">
                     {practiceAreaOptions.map((opt) => (
                       <label
                         key={opt.value}
@@ -647,9 +664,11 @@ export default function AttorneyRegister() {
                   {fieldErrors.specialties && <p className="mt-1 text-xs text-red-600">{fieldErrors.specialties}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.whereLabel')}</label>
+                  <label htmlFor="reg-state-search" className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.whereLabel')}</label>
                   <input
+                    id="reg-state-search"
                     type="text"
+                    autoComplete="off"
                     placeholder={t('attorneyReg.searchStates')}
                     value={stateSearchQuery}
                     onChange={(e) => setStateSearchQuery(e.target.value.replace(/^\s+/, ''))}
@@ -694,8 +713,8 @@ export default function AttorneyRegister() {
                   {fieldErrors.venues && <p className="mt-1 text-xs text-red-600">{fieldErrors.venues}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.receiveHowLabel')}</label>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <p id="reg-receive-label" className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.receiveHowLabel')}</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-labelledby="reg-receive-label">
                     {[
                       { value: 'state', label: t('attorneyReg.entireState') },
                       { value: 'counties', label: t('attorneyReg.selectedCounties') },
@@ -734,8 +753,8 @@ export default function AttorneyRegister() {
                       const stateName = US_STATES.find((s) => s.code === stateCode)?.name || stateCode
                       return (
                         <div key={stateCode}>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.countiesIn')} {stateName}</label>
-                          <div className="flex flex-wrap gap-2">
+                          <p id={`reg-counties-${stateCode}`} className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.countiesIn')} {stateName}</p>
+                          <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`reg-counties-${stateCode}`}>
                             {stateCounties.map((county) => (
                               <label
                                 key={`${stateCode}-${county}`}
@@ -773,8 +792,8 @@ export default function AttorneyRegister() {
             <div hidden={currentStep !== 3} className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">{t('attorneyReg.step3Title')}</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.howManyLabel')}</label>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                  <p id="reg-capacity-label" className="block text-sm font-medium text-gray-700 mb-2">{t('attorneyReg.howManyLabel')}</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4" role="radiogroup" aria-labelledby="reg-capacity-label">
                     {[
                       { value: '5', label: t('attorneyReg.cap1') },
                       { value: '10', label: t('attorneyReg.cap2') },
@@ -813,10 +832,10 @@ export default function AttorneyRegister() {
                     <button
                       type="button"
                       disabled={isLoading}
-                      onClick={() => { void skipLicenseAndFinish() }}
+                      onClick={() => { void finishWithoutLicense() }}
                       className="order-2 text-sm font-semibold text-slate-600 underline decoration-dotted underline-offset-2 hover:text-slate-900 disabled:opacity-50 sm:order-1 sm:no-underline sm:rounded-lg sm:border sm:border-slate-300 sm:bg-white sm:px-4 sm:py-2 sm:hover:bg-slate-50"
                     >
-                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.skipLicense')}
+                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.finishVerifyLater')}
                     </button>
                     <button type="button" onClick={() => { void goToStep(4) }} className="order-1 btn-primary sm:order-2">
                       {t('attorneyReg.next4')}
@@ -877,9 +896,11 @@ export default function AttorneyRegister() {
                 </div>
                 {showFirmWebsite && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.firmWebsiteLabel')}</label>
+                    <label htmlFor="reg-firm-website" className="block text-sm font-medium text-gray-700 mb-1">{t('attorneyReg.firmWebsiteLabel')}</label>
                     <input
+                      id="reg-firm-website"
                       type="url"
+                      autoComplete="url"
                       maxLength={200}
                       value={form.firmWebsite}
                       onChange={(e) => updateField('firmWebsite', e.target.value)}
@@ -928,32 +949,27 @@ export default function AttorneyRegister() {
                     {t('attorneyReg.practiceAreasLabel')} {specialties.map((v) => practiceAreaOptions.find((o) => o.value === v)?.label || v).join(', ') || '—'}
                   </p>
                   <p className="text-sm text-gray-600">
-                    {t('attorneyReg.jurisdictionLabel')} {venues.join(', ') || '—'}
+                    {t('attorneyReg.jurisdictionLabel')} {selectedStates.map((s) => s.name).join(', ') || '—'}
                   </p>
                 </div>
-
-                {agreementCheckbox}
 
                 <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
                     {t('attorneyReg.back')}
                   </button>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="order-2 text-sm font-semibold text-slate-600 underline decoration-dotted underline-offset-2 hover:text-slate-900 disabled:opacity-50 sm:order-1 sm:no-underline sm:rounded-lg sm:border sm:border-slate-300 sm:bg-white sm:px-4 sm:py-2 sm:hover:bg-slate-50"
-                    >
-                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.skipLicense')}
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="order-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed sm:order-2"
-                    >
-                      {isLoading ? t('attorneyReg.registering') : t('attorneyReg.completeRegistration')}
-                    </button>
-                  </div>
+                  {/* One finish button. A separate "Skip" submitted the same form and
+                      uploaded any attached document anyway. */}
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading
+                      ? t('attorneyReg.registering')
+                      : selectedFile || govIdFile || hasFirmWebsiteEntry
+                        ? t('attorneyReg.completeRegistration')
+                        : t('attorneyReg.finishVerifyLater')}
+                  </button>
                 </div>
               </div>
           </form>

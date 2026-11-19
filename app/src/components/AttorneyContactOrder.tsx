@@ -22,6 +22,8 @@ export interface AttorneyContactOrderProps {
   /** False until the claimant has actively picked a first choice. */
   firstChoiceChosen: boolean
   readOnly: boolean
+  /** Readable venue, such as "California", when the list is a single match. */
+  venueLabel?: string
   t: TFn
   onChooseFirst: (id: string) => void
   onReorder: (id: string, targetId: string) => void
@@ -186,6 +188,7 @@ export function AttorneyContactOrder({
   removed,
   firstChoiceChosen,
   readOnly,
+  venueLabel,
   t,
   onChooseFirst,
   onReorder,
@@ -296,7 +299,19 @@ export function AttorneyContactOrder({
         <h3 className="text-base font-semibold text-slate-900">
           {single ? t('results.calc.contactThisAttorney') : t('results.contactOrder.yourOrder')}
         </h3>
-        {!single && <p className="mt-1 text-sm leading-relaxed text-slate-600">{t('results.contactOrder.intro')}</p>}
+        {single ? (
+          // Only true when the directory returned one: after the claimant removes
+          // others, the remaining attorney is not the only match.
+          removed.length === 0 && (
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+              {venueLabel
+                ? t('results.calc.onlyVerifiedAttorney', { state: venueLabel })
+                : t('results.calc.onlyVerifiedAttorneyAnywhere')}
+            </p>
+          )
+        ) : (
+          <p className="mt-1 text-sm leading-relaxed text-slate-600">{t('results.contactOrder.intro')}</p>
+        )}
         {!readOnly && <ParticipationNotice t={t} />}
       </header>
 

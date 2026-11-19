@@ -693,7 +693,7 @@ export function ResultsReportDetails({
           className="inline-flex items-center px-4 py-2.5 text-sm font-semibold text-white bg-brand-700 rounded-lg hover:bg-brand-800 shadow-sm transition-colors"
         >
           <Upload className="h-4 w-4 mr-2" />
-          {t('results.report.uploadEvidence')}
+          {t('results.calc.nsAddRecordsCta')}
         </Link>
       </div>
 
