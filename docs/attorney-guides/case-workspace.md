@@ -2,7 +2,7 @@
 
 # The case workspace
 
-Find your way around an accepted case: the case header, the eight tabs and their subtabs, and what firm staff see when their role is view-only.
+Find your way around an accepted case: the case header, the six tabs and their subtabs, and what firm staff see when their role is view-only.
 
 _Last updated: 2026-10-12 · About 5 min read_
 
@@ -11,8 +11,7 @@ _Last updated: 2026-10-12 · About 5 min read_
 - [Opening a case](#opening-a-case)
 - [The case header](#the-case-header)
 - [Overview and Tasks](#overview-and-tasks)
-- [AI, Documents and Medical](#ai-documents-and-medical)
-- [Claim and Resolution](#claim-and-resolution)
+- [Documents, Claim and Resolution](#documents-claim-and-resolution)
 - [Billing](#billing)
 - [What firm staff see](#what-firm-staff-see)
 
@@ -34,27 +33,25 @@ The header stays at the top of every tab. It shows the case name, the Case ID, t
 
 ## Overview and Tasks
 
-1. Overview → Summary: the AI case summary, valuation and readiness at a glance.
+1. Overview → Summary: the AI case summary, valuation, readiness and case health at a glance.
 2. Overview → Client info: the client’s contact details and mailing address.
-3. Overview → Activity: a chronological record of everything on the matter.
-4. Tasks → Queue: the main work queue for the case, with recommended next steps, assignments and open items.
-5. Tasks → Workflow: your firm’s standard pipeline for the case. Check off steps, assign owners and track progress stage by stage.
+3. Overview → Notes & calls: private team notes and a log of every call, email, text and meeting with the client.
+4. Overview → Activity: a chronological record of everything on the matter.
+5. Tasks → Queue: the main work queue for the case, with recommended next steps, assignments and open items.
+6. Tasks → Workflow: your firm’s standard pipeline for the case. Check off steps, assign owners and track progress stage by stage.
+7. Tasks → Ask Copilot: ask case-specific questions and get answers with citations, plus workup readiness for the matter.
+8. Tasks → Rose: Rose reviews the case, raises next tasks and shows the AI Case Coach feed.
 
-## AI, Documents and Medical
+## Documents, Claim and Resolution
 
-1. AI → Ask Copilot: ask case-specific questions and get answers with citations, plus workup readiness for the matter.
-2. AI → Rose: Rose reviews the case, raises next tasks and shows the AI Case Coach feed.
-3. Documents: every file on the case, what the client still owes you, e-signatures, and your retainer and HIPAA templates.
-4. Medical: providers, the treatment chronology and cost benchmarks.
-
-## Claim and Resolution
-
-1. Claim → Liability: fault theory, comparative negligence and liability evidence.
-2. Claim → Insurance: carriers, policy limits, adjusters and claims.
-3. Claim → Damages: itemized economic damages such as medical costs, wage loss and future costs.
-4. Resolution → Demand: the demand package, case value and policy limits.
-5. Resolution → Negotiation: demands, offers and settlement posture.
-6. Resolution → Settlement: the net-to-client waterfall of fees, case costs and lien reductions.
+1. Documents: every file on the case, what the client still owes you, e-signatures, and your retainer and HIPAA templates.
+2. Claim → Medical: providers, the treatment chronology and cost benchmarks.
+3. Claim → Liability: fault theory, comparative negligence and liability evidence.
+4. Claim → Insurance: carriers, policy limits, adjusters and claims.
+5. Claim → Damages: itemized economic damages such as medical costs, wage loss and future costs.
+6. Resolution → Demand: the demand package, case value and policy limits.
+7. Resolution → Negotiation: demands, offers and settlement posture.
+8. Resolution → Settlement: the net-to-client waterfall of fees, case costs and lien reductions.
 
 ## Billing
 

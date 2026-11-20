@@ -2966,7 +2966,7 @@ describe('HTTP operations regressions', () => {
           { assignedAttorneyId: 'attorney-record-1' },
           {
             assessment: {
-              introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+              introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED', 'TRANSFERRED'] } } },
             },
           },
         ],
@@ -3120,7 +3120,7 @@ describe('HTTP operations regressions', () => {
           { assignedAttorneyId: 'attorney-record-1' },
           {
             assessment: {
-              introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+              introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED', 'TRANSFERRED'] } } },
             },
           },
           {
@@ -3132,7 +3132,7 @@ describe('HTTP operations regressions', () => {
           { assessment: { lawFirmId: 'firm-1' } },
           {
             assessment: {
-              introductions: { some: { attorney: { lawFirmId: 'firm-1' }, status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+              introductions: { some: { attorney: { lawFirmId: 'firm-1' }, status: { notIn: ['EXPIRED', 'DECLINED', 'TRANSFERRED'] } } },
             },
           },
         ],
@@ -3270,15 +3270,10 @@ describe('HTTP operations regressions', () => {
       attorneyId: 'attorney-record-1',
       contactType: 'sms',
     })
-    expect(vi.mocked(prisma.attorney.findFirst).mock.calls[0]?.[0]).toEqual({
+    expect(vi.mocked(prisma.attorney.findFirst).mock.calls[0]?.[0]).toMatchObject({
       where: { email: 'attorney@example.com' },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
     })
-    expect(vi.mocked(prisma.leadSubmission.findUnique).mock.calls[0]?.[0]).toEqual({
+    expect(prisma.leadSubmission.findUnique).toHaveBeenCalledWith({
       where: { id: 'lead-1' },
       select: {
         assessmentId: true,
@@ -3533,10 +3528,17 @@ describe('HTTP operations regressions', () => {
     })
   })
 
-  it('GET /v1/attorney-dashboard/leads/:leadId/contacts returns compact contact history payload', async () => {
+  it('GET /v1/attorney-dashboard/leads/:leadId/contacts returns the whole case contact history', async () => {
     vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
       id: 'attorney-record-1',
+      email: 'attorney@example.com',
       isVerified: true,
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignedAttorneyId: 'attorney-record-1',
+      status: 'retained',
     } as any)
     vi.mocked(prisma.leadContact.findMany).mockResolvedValue([
       {
@@ -3570,15 +3572,8 @@ describe('HTTP operations regressions', () => {
         notes: 'Consultation booked.',
       },
     ])
-    expect(vi.mocked(prisma.attorney.findFirst).mock.calls[0]?.[0]).toEqual({
-      where: { email: 'attorney@example.com' },
-      select: { id: true },
-    })
     expect(vi.mocked(prisma.leadContact.findMany).mock.calls[0]?.[0]).toEqual({
-      where: {
-        leadId: 'lead-1',
-        attorneyId: 'attorney-record-1',
-      },
+      where: { leadId: 'lead-1' },
       select: {
         id: true,
         leadId: true,
@@ -5386,6 +5381,75 @@ describe('HTTP operations regressions', () => {
         createdAt: true,
         updatedAt: true,
       },
+    })
+  })
+
+  describe('POST /v1/attorney-dashboard/leads/:leadId/settlement/status finalize', () => {
+    beforeEach(() => {
+      vi.mocked(prisma.attorney.findFirst).mockResolvedValue({
+        id: 'attorney-record-1',
+        email: 'attorney@example.com',
+        name: 'Ari Attorney',
+        isVerified: true,
+      } as any)
+      vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+        id: 'lead-1',
+        assessmentId: 'asm-1',
+        assignmentType: 'direct',
+        assignedAttorneyId: 'attorney-record-1',
+        status: 'retained',
+      } as any)
+      vi.mocked(prisma.negotiationEvent.findFirst).mockResolvedValue(null as any)
+    })
+
+    const finalize = (body: Record<string, unknown> = {}) =>
+      request(app)
+        .post('/v1/attorney-dashboard/leads/lead-1/settlement/status')
+        .set('Authorization', 'Bearer attorney')
+        .send({ status: 'finalized', ...body })
+
+    it('refuses to finalize the predicted estimate', async () => {
+      vi.mocked(prisma.settlementScenario.findUnique).mockResolvedValue({ status: 'draft', grossAmount: null } as any)
+
+      const res = await finalize().expect(409)
+
+      expect(res.body.code).toBe('AGREED_AMOUNT_REQUIRED')
+      expect(prisma.settlementScenario.upsert).not.toHaveBeenCalled()
+    })
+
+    it('refuses an agreed amount the client has not accepted', async () => {
+      vi.mocked(prisma.settlementScenario.findUnique).mockResolvedValue({ status: 'draft', grossAmount: 75000 } as any)
+
+      const res = await finalize({ clientApprovalNote: 'ok' }).expect(409)
+
+      expect(res.body.code).toBe('CLIENT_ACCEPTANCE_REQUIRED')
+      expect(prisma.negotiationEvent.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { assessmentId: 'asm-1', clientDecision: 'accepted', amount: { gte: 74999, lte: 75001 } },
+        }),
+      )
+      expect(prisma.settlementScenario.upsert).not.toHaveBeenCalled()
+    })
+
+    it('finalizes once the client accepted that amount in their portal', async () => {
+      vi.mocked(prisma.settlementScenario.findUnique).mockResolvedValue({ status: 'draft', grossAmount: 75000 } as any)
+      vi.mocked(prisma.negotiationEvent.findFirst).mockResolvedValue({ id: 'neg-9' } as any)
+
+      await finalize().expect(200)
+
+      expect(prisma.settlementScenario.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: expect.objectContaining({ status: 'finalized' }) }),
+      )
+    })
+
+    it('finalizes with the attorney recording how the client approved', async () => {
+      vi.mocked(prisma.settlementScenario.findUnique).mockResolvedValue({ status: 'draft', grossAmount: 75000 } as any)
+
+      await finalize({ clientApprovalNote: 'Client approved by phone on 11/18, confirmed by email.' }).expect(200)
+
+      expect(prisma.settlementScenario.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: expect.objectContaining({ status: 'finalized' }) }),
+      )
     })
   })
 

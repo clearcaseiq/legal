@@ -10,7 +10,7 @@ Step-by-step guides for attorneys and firm staff using ClearCaseIQ. The same gui
 
 1. [Getting started](./getting-started.md): Create your attorney account, verify your bar license, add a payment method, set up your profile and bring your team into the Firm Dashboard.
 2. [Receiving and accepting cases](./receiving-cases.md): Review new matches, understand the case scores and the response window, run the conflict check, and accept or decline with confidence.
-3. [The case workspace](./case-workspace.md): Find your way around an accepted case: the case header, the eight tabs and their subtabs, and what firm staff see when their role is view-only.
+3. [The case workspace](./case-workspace.md): Find your way around an accepted case: the case header, the six tabs and their subtabs, and what firm staff see when their role is view-only.
 4. [Tasks and workflows](./tasks-and-workflows.md): Build your firm’s case pipeline on the Workflow tab, apply it, and work the tasks it creates on each case and across your whole caseload.
 5. [Client communication](./client-communication.md): Message clients in the app, by text or by email, keep up with the Messages hub, and request documents and follow up until they arrive.
 6. [E-signatures and firm templates](./e-signatures-and-templates.md): Build a library of firm documents, place signature fields on them, send them from a case for e-signature, and automate the retainer and welcome packet.

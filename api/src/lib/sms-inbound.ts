@@ -18,6 +18,8 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { attorneyAcceptCase, attorneyDeclineCase } from './routing-lifecycle'
+import { getAcceptBlocker } from './accept-prerequisites'
+import { webUrl } from './stripe'
 import { selectOfferForReply } from './offer-reference'
 import {
   HELP_REPLY,
@@ -292,6 +294,25 @@ export async function processInboundSmsDecision(input: {
     }
 
     const introductionId = selection.introductionId
+
+    // A text reply cannot pay the routing fee, acknowledge a conflict or sign
+    // the agreement, so those accepts are sent to the dashboard instead.
+    if (decision === 'ACCEPTED') {
+      const blocker = await getAcceptBlocker(introductionId, attorney.id)
+      if (blocker) {
+        const link = blocker.leadId ? ` ${webUrl(`/attorney-dashboard/leadgen/matches/${blocker.leadId}/overview`)}` : ''
+        const result: InboundSmsResult = {
+          attorneyId: attorney.id,
+          introductionId,
+          processingStatus: 'ignored',
+          responseCode: 200,
+          responseMessage: `${blocker.message}${link}`,
+        }
+        await updateReceipt(receiptId, result)
+        return result
+      }
+    }
+
     const decided =
       decision === 'ACCEPTED'
         ? await attorneyAcceptCase(introductionId, attorney.id)

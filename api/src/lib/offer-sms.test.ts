@@ -24,7 +24,7 @@ const BASE = {
 
 describe('buildOfferSms', () => {
   it('carries a link, because the old message told attorneys to see a case file it never linked', () => {
-    expect(buildOfferSms(BASE)).toContain('Details: https://clearcaseiq.com/o/CMU7Y2')
+    expect(buildOfferSms(BASE)).toContain('Details: https://clearcaseiq.com/o/YPTK4E')
   })
 
   it('states the deadline as a wall clock time in the case jurisdiction', () => {
@@ -70,7 +70,7 @@ describe('buildOfferSms', () => {
   })
 
   it('keeps the reply codes the inbound parser matches on', () => {
-    expect(buildOfferSms(BASE)).toContain('Reply ACCEPT CMU7Y2 or DECLINE CMU7Y2')
+    expect(buildOfferSms(BASE)).toContain('Reply ACCEPT YPTK4E or DECLINE YPTK4E')
   })
 
   it('fits in two segments, which is what the old message should have cost', () => {
@@ -89,8 +89,8 @@ describe('buildOfferSms', () => {
 describe('buildTierOfferSms', () => {
   it('gives the tier routers the same link, codes and opt-out', () => {
     const text = buildTierOfferSms('cmu7y2gp90002iq5z3byptk4e', 'Tier 1 case - Fixed price offer', 5)
-    expect(text).toContain('Details: https://clearcaseiq.com/o/CMU7Y2')
-    expect(text).toContain('Reply ACCEPT CMU7Y2 or DECLINE CMU7Y2 within 5 min.')
+    expect(text).toContain('Details: https://clearcaseiq.com/o/YPTK4E')
+    expect(text).toContain('Reply ACCEPT YPTK4E or DECLINE YPTK4E within 5 min.')
     expect(text).toContain('Reply STOP to end texts.')
   })
 })

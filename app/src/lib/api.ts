@@ -1764,6 +1764,22 @@ export async function lookupStateBarLicense(licenseNumber: string, state: string
   return response
 }
 
+export type AttorneyReadinessItemId = 'approval' | 'agreement' | 'states' | 'caseTypes' | 'responseTime' | 'active'
+
+export interface AttorneyReadiness {
+  ready: boolean
+  items: Array<{ id: AttorneyReadinessItemId; done: boolean }>
+  submittedAt: string | null
+  licenseVerified: boolean
+  responseTimeHours: number | null
+}
+
+/** What still stands between the attorney and their first routed case. */
+export async function getAttorneyReadiness(): Promise<AttorneyReadiness> {
+  const { data } = await api.get('/v1/attorney-profile/readiness', { headers: { 'Cache-Control': 'no-store' } })
+  return data
+}
+
 // Get license status
 export async function getAttorneyLicenseStatus() {
   const { data: response } = await api.get('/v1/attorney-profile/license/status', {
@@ -4129,16 +4145,22 @@ export async function updateLeadSettlement(leadId: string, payload: any) {
   return data
 }
 
-export async function setLeadSettlementStatus(leadId: string, status: 'draft' | 'finalized' | 'disbursed') {
-  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/settlement/status`, { status })
+export async function setLeadSettlementStatus(
+  leadId: string,
+  status: 'draft' | 'finalized' | 'disbursed',
+  opts: { clientApprovalNote?: string } = {},
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/settlement/status`, { status, ...opts })
   return data
 }
 
 // Case lifecycle: close / reopen / litigation sub-track
 export type LitigationStatus = 'none' | 'pre_suit' | 'filed' | 'discovery' | 'mediation' | 'trial' | 'resolved'
 
-export async function closeLeadCase(leadId: string) {
-  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/close`)
+export type CaseCloseReason = 'settled' | 'verdict' | 'dropped' | 'client_withdrew' | 'referred_out' | 'other'
+
+export async function closeLeadCase(leadId: string, reason?: CaseCloseReason) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/close`, reason ? { reason } : {})
   return data as { ok: boolean; caseStage: string | null }
 }
 

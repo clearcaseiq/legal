@@ -24,6 +24,10 @@ describe('case tab groups', () => {
     expect([...grouped].sort()).toEqual([...CASE_SECTIONS].sort())
   })
 
+  it('keeps the workspace to six top-level tabs', () => {
+    expect(CASE_TAB_GROUPS).toHaveLength(6)
+  })
+
   it('round-trips every section through its URL segment', () => {
     for (const section of CASE_SECTIONS) expect(resolveCaseSection(TAB_TO_SECTION[section])).toBe(section)
   })
@@ -46,8 +50,8 @@ describe('task buttons open the right tab', () => {
     ['open_insurance', 'Claim > Insurance', 'Claim > Insurance'],
     ['open_liability', 'Claim > Liability', 'Claim > Liability'],
     ['open_damages', 'Claim > Damages', 'Claim > Damages'],
-    ['send_lor_providers', 'Medical > Medical', 'Medical > Medical'],
-    ['open_medical', 'Medical > Medical', 'Medical > Medical'],
+    ['send_lor_providers', 'Claim > Medical', 'Claim > Medical'],
+    ['open_medical', 'Claim > Medical', 'Claim > Medical'],
     ['open_overview', 'Overview > Overview', 'Overview > Overview'],
     ['open_client_info', 'Overview > Client Info', 'Overview > Client Info'],
     ['open_demand', 'Resolution > Demand', 'Resolution > Demand'],
@@ -95,8 +99,8 @@ describe('generated tasks open the right tab', () => {
     ['Confirm defendant insurance carrier / claim number', 'Claim > Insurance'],
     ['Gather photos, witness statements & scene evidence', 'Claim > Liability'],
     ['Compile special damages summary', 'Claim > Damages'],
-    ['Send letters of representation to providers', 'Medical > Medical'],
-    ['Monitor ongoing treatment', 'Medical > Medical'],
+    ['Send letters of representation to providers', 'Claim > Medical'],
+    ['Monitor ongoing treatment', 'Claim > Medical'],
     ['Draft demand letter', 'Resolution > Demand'],
     ['Demand sent to carrier', 'Resolution > Negotiation'],
     ['Adjuster offer received', 'Resolution > Negotiation'],
@@ -117,10 +121,13 @@ describe('legacy links', () => {
     ['retainer', 'Documents > Documents'],
     ['client-info', 'Overview > Client Info'],
     ['contacts', 'Overview > Client Info'],
+    ['notes', 'Overview > Notes'],
+    ['communications', 'Overview > Notes'],
+    ['contact-log', 'Overview > Notes'],
     ['timeline', 'Overview > Timeline'],
     ['chronology', 'Overview > Timeline'],
-    ['copilot', 'AI > AI Copilot'],
-    ['rose', 'AI > Rose'],
+    ['copilot', 'Tasks > AI Copilot'],
+    ['rose', 'Tasks > Rose'],
     ['coverage', 'Claim > Insurance'],
     ['invoices', 'Billing > Billing'],
     ['time', 'Billing > Time'],

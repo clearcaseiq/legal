@@ -11,6 +11,7 @@ import { createNotificationEvent } from './platform-notifications'
 import { emitCaseUpdated, emitLeadNew } from './realtime'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
 import { buildOfferSms } from './offer-sms'
+import { offerReferenceCode } from './offer-reference'
 import { getCurrentAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 import { formatCaseTypeWithSubtype, formatClaimType } from './claim-types'
 
@@ -185,7 +186,7 @@ export async function notifyAttorneyNewMatchInApp(attorneyId: string, introducti
       subject: 'New case match',
       body: place ? `${caseType} in ${place} is waiting in New Matches.` : `${caseType} is waiting in New Matches.`,
       leadId: lead?.id ?? null,
-      link: lead?.id ? `/attorney-dashboard/lead/${lead.id}/overview` : '/attorney-dashboard/leadgen/matches',
+      link: lead?.id ? `/attorney-dashboard/leadgen/matches/${lead.id}/overview` : '/attorney-dashboard/leadgen/matches',
       payload: { introductionId },
     })
   } catch (err) {
@@ -276,6 +277,84 @@ export async function notifyPlaintiffInApp(input: {
 }
 
 /**
+ * Text and email the attorney that an open offer's response window is nearly up.
+ * The bell entry is sent separately by the expiry sweep.
+ */
+export async function sendOfferExpiringToAttorney(input: {
+  attorneyId: string
+  introductionId: string
+  assessmentId: string
+  leadId: string
+  minutesLeft: number
+}): Promise<{ sms: boolean; email: boolean }> {
+  const attorney = await prisma.attorney.findUnique({
+    where: { id: input.attorneyId },
+    select: { email: true, phone: true },
+  })
+  if (!attorney) return { sms: false, email: false }
+
+  const reviewUrl = webUrl(`/attorney-dashboard/leadgen/matches/${input.leadId}/overview`)
+  const code = offerReferenceCode(input.introductionId)
+  const left =
+    input.minutesLeft >= 60
+      ? `${Math.round(input.minutesLeft / 60)} hour${Math.round(input.minutesLeft / 60) === 1 ? '' : 's'}`
+      : `${Math.max(1, Math.round(input.minutesLeft))} minutes`
+  const payload = { introductionId: input.introductionId, leadId: input.leadId }
+  let sms = false
+  let email = false
+
+  if (attorney.phone) {
+    try {
+      await createNotificationEvent({
+        attorneyId: input.attorneyId,
+        assessmentId: input.assessmentId,
+        role: 'attorney',
+        channel: 'sms',
+        eventType: ATTORNEY_EVENTS.case_expiring,
+        subject: 'Match expiring soon',
+        body: [
+          `ClearCaseIQ: About ${left} left to respond to a matched case.`,
+          `Review: ${reviewUrl}`,
+          `Reply ACCEPT ${code} or DECLINE ${code}.`,
+          'Reply STOP to end texts.',
+        ].join('\n'),
+        recipient: attorney.phone,
+        payload,
+      })
+      sms = true
+    } catch (err) {
+      logger.warn('Expiring-soon SMS failed', { attorneyId: input.attorneyId, error: (err as Error).message })
+    }
+  }
+
+  if (attorney.email) {
+    try {
+      await createNotificationEvent({
+        attorneyId: input.attorneyId,
+        assessmentId: input.assessmentId,
+        role: 'attorney',
+        channel: 'email',
+        eventType: ATTORNEY_EVENTS.case_expiring,
+        subject: `Match expiring in about ${left}`,
+        body: [
+          `Your response window on a matched case closes in about ${left}.`,
+          'If you do not accept or decline, the case is released to another attorney.',
+          '',
+          `Review the case: ${reviewUrl}`,
+        ].join('\n'),
+        recipient: attorney.email,
+        payload,
+      })
+      email = true
+    } catch (err) {
+      logger.warn('Expiring-soon email failed', { attorneyId: input.attorneyId, error: (err as Error).message })
+    }
+  }
+
+  return { sms, email }
+}
+
+/**
  * Send case offer to attorney via all channels: Email, SMS, in-platform
  */
 export async function sendCaseOfferToAttorney(
@@ -311,7 +390,7 @@ export async function sendCaseOfferToAttorney(
     select: { id: true },
   })
   const reviewUrl = lead?.id
-    ? webUrl(`/attorney-dashboard/lead/${lead.id}/overview`)
+    ? webUrl(`/attorney-dashboard/leadgen/matches/${lead.id}/overview`)
     : webUrl('/attorney-dashboard')
 
   const fullMessage = [
@@ -397,7 +476,7 @@ export async function sendCaseOfferToAttorney(
           introductionId,
           assessmentId: summary.assessmentId,
           claimType: summary.claimType,
-          ...(lead?.id ? { leadId: lead.id, link: `/attorney-dashboard/lead/${lead.id}/overview` } : {}),
+          ...(lead?.id ? { leadId: lead.id, link: `/attorney-dashboard/leadgen/matches/${lead.id}/overview` } : {}),
         }
       })
       inPlatformSent = true
@@ -901,9 +980,104 @@ export async function sendPlaintiffCaseValueUpdated(
  * inbox (not just the bell). Best-effort: any single channel failing is logged
  * and does not block the others.
  */
+/** What the client is told on entering a stage; stages not listed stay quiet. */
+const CLIENT_STAGE_UPDATES: Record<string, { subject: string; line: string; eventType: string }> = {
+  RECORD_COLLECTION: {
+    subject: 'Your attorney is collecting your records',
+    line: 'Your attorney is now gathering your medical records and bills to build your claim.',
+    eventType: PLAINTIFF_EVENTS.case_stage_changed,
+  },
+  DEMAND_SENT: {
+    subject: 'Your demand has been sent',
+    line: 'Your attorney has sent a settlement demand to the insurance company. Insurers usually take a few weeks to respond.',
+    eventType: PLAINTIFF_EVENTS.demand_sent,
+  },
+  NEGOTIATION: {
+    subject: 'Your case is in negotiation',
+    line: 'The insurance company has responded and your attorney is negotiating on your behalf.',
+    eventType: PLAINTIFF_EVENTS.case_stage_changed,
+  },
+  SETTLEMENT_PENDING: {
+    subject: 'Your settlement is being finalized',
+    line: 'A settlement is being finalized. Your attorney will walk you through the paperwork before anything is signed.',
+    eventType: PLAINTIFF_EVENTS.case_stage_changed,
+  },
+  DISBURSEMENT: {
+    subject: 'Your settlement funds are being disbursed',
+    line: 'Settlement funds are being processed. Your attorney will share a breakdown of fees, liens, and your net amount.',
+    eventType: PLAINTIFF_EVENTS.case_stage_changed,
+  },
+}
+
+/** Tell the client their case moved forward. Sent once per stage per case. */
+export async function sendPlaintiffStageUpdate(assessmentId: string, stage: string): Promise<boolean> {
+  const update = CLIENT_STAGE_UPDATES[stage]
+  if (!update) return false
+  try {
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { userId: true, user: { select: { email: true, firstName: true } } },
+    })
+    if (!assessment?.userId || !assessment.user?.email) return false
+
+    const already = await prisma.platformNotificationEvent.findFirst({
+      where: { assessmentId, eventType: update.eventType, payloadJson: { contains: `"stage":"${stage}"` } },
+      select: { id: true },
+    })
+    if (already) return false
+
+    const greeting = assessment.user.firstName ? `Hello ${assessment.user.firstName},` : 'Hello,'
+    const body = [greeting, '', update.line, '', 'You can follow every step in your case dashboard.'].join('\n')
+    const payload = { assessmentId, stage }
+    await createNotificationEvent({
+      userId: assessment.userId,
+      assessmentId,
+      role: 'plaintiff',
+      channel: 'email',
+      eventType: update.eventType,
+      subject: update.subject,
+      body,
+      cta: { label: 'View your case', url: webUrl(`/results/${assessmentId}`) },
+      recipient: assessment.user.email,
+      payload,
+    })
+    await createNotificationEvent({
+      userId: assessment.userId,
+      assessmentId,
+      role: 'plaintiff',
+      channel: 'in_app',
+      eventType: update.eventType,
+      subject: update.subject,
+      body: update.line,
+      recipient: assessment.user.email,
+      payload: { ...payload, link: `/results/${assessmentId}` },
+    })
+    return true
+  } catch (err) {
+    logger.warn('Stage update notification failed', { assessmentId, stage, error: (err as Error).message })
+    return false
+  }
+}
+
+export const CASE_CLOSE_REASONS = ['settled', 'verdict', 'dropped', 'client_withdrew', 'referred_out', 'other'] as const
+export type CaseCloseReason = (typeof CASE_CLOSE_REASONS)[number]
+
+const CLOSE_REASON_PHRASE: Record<CaseCloseReason, string> = {
+  settled: 'settled and closed',
+  verdict: 'resolved at trial and closed',
+  dropped: 'closed without a recovery',
+  client_withdrew: 'closed at your request',
+  referred_out: 'referred to another firm and closed here',
+  other: 'closed',
+}
+
+export function isCaseCloseReason(value: unknown): value is CaseCloseReason {
+  return typeof value === 'string' && (CASE_CLOSE_REASONS as readonly string[]).includes(value)
+}
+
 export async function sendPlaintiffCaseClosed(
   assessmentId: string,
-  opts?: { attorneyId?: string | null }
+  opts?: { attorneyId?: string | null; reason?: CaseCloseReason | null }
 ): Promise<boolean> {
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
@@ -930,7 +1104,7 @@ export async function sendPlaintiffCaseClosed(
   const message = [
     `Hello${greetingName},`,
     '',
-    `Your ${caseTypeLabel} case has been settled and closed${attorneyLine ? ` by ${attorneyLine}` : ''}.`,
+    `Your ${caseTypeLabel} case has been ${CLOSE_REASON_PHRASE[opts?.reason || 'other']}${attorneyLine ? ` by ${attorneyLine}` : ''}.`,
     '',
     'Thank you for trusting ClearCaseIQ with your claim. Your case file and documents remain available in your dashboard for your records.',
     '',
@@ -940,7 +1114,13 @@ export async function sendPlaintiffCaseClosed(
     'The ClearCaseIQ Team',
   ].join('\n')
 
-  const payload = { assessmentId, attorneyId: attorney?.id || null, attorneyName: attorney?.name || null, firmName: firmName || null }
+  const payload = {
+    assessmentId,
+    attorneyId: attorney?.id || null,
+    attorneyName: attorney?.name || null,
+    firmName: firmName || null,
+    closeReason: opts?.reason || null,
+  }
 
   let ok = false
   try {

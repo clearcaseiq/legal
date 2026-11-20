@@ -226,6 +226,12 @@ export async function syncCaseStage(
       }
     }
 
+    if (STAGE_ORDER[resolved] > enteredFrom) {
+      void import('./case-notifications')
+        .then(({ sendPlaintiffStageUpdate }) => sendPlaintiffStageUpdate(assessmentId, resolved))
+        .catch((e: any) => logger.warn('sendPlaintiffStageUpdate failed', { assessmentId, error: e?.message }))
+    }
+
     // A firm does not send a demand or negotiate a settlement on a case it was
     // never retained for, so reaching one of these stages with the lead still
     // un-retained means the retainer never completed — usually a signature

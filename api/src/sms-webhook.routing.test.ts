@@ -3,11 +3,13 @@ import request from 'supertest'
 import crypto from 'crypto'
 
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
+vi.mock('./lib/accept-prerequisites', () => ({ getAcceptBlocker: vi.fn(async () => null) }))
 
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 import { offerReferenceCode } from './lib/offer-reference'
+import { getAcceptBlocker } from './lib/accept-prerequisites'
 
 const AUTH_TOKEN = 'test-twilio-auth-token'
 // Pinning the URL keeps the signature deterministic; supertest binds an
@@ -93,6 +95,29 @@ describe('POST /v1/sms/webhook routing replies', () => {
       expect.objectContaining({
         data: expect.objectContaining({ status: 'ACCEPTED' }),
       })
+    )
+  })
+
+  it('ACCEPT that still needs a step on the web replies with the link and accepts nothing', async () => {
+    givenPendingOffer({
+      attorneyId: 'att-sms-7',
+      phone: '+15557778888',
+      introId: 'intro-sms-7',
+      assessmentId: 'asm-sms-7',
+    })
+    vi.mocked(getAcceptBlocker).mockResolvedValueOnce({
+      code: 'ROUTING_FEE_REQUIRED',
+      message: 'This case has a routing fee. Accept it on the web to pay.',
+      leadId: 'lead-for-offer',
+    })
+
+    const res = await postSigned(app, { MessageSid: 'SM-blocked-1', From: '+15557778888', Body: 'ACCEPT' })
+
+    expect(res.status).toBe(200)
+    expect(res.text).toContain('routing fee')
+    expect(res.text).toContain('/attorney-dashboard/leadgen/matches/lead-for-offer/overview')
+    expect(prisma.introduction.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'ACCEPTED' }) })
     )
   })
 

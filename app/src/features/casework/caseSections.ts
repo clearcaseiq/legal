@@ -8,6 +8,7 @@
 export const CASE_SECTIONS = [
   'Overview',
   'Client Info',
+  'Notes',
   'Timeline',
   'Tasks',
   'Workflow',
@@ -35,12 +36,10 @@ export type CaseTabGroup = {
 }
 
 export const CASE_TAB_GROUPS: CaseTabGroup[] = [
-  { id: 'overview', label: 'Overview', sections: ['Overview', 'Client Info', 'Timeline'] },
-  { id: 'tasks', label: 'Tasks', sections: ['Tasks', 'Workflow'] },
-  { id: 'ai', label: 'AI', sections: ['AI Copilot', 'Rose'] },
+  { id: 'overview', label: 'Overview', sections: ['Overview', 'Client Info', 'Notes', 'Timeline'] },
+  { id: 'tasks', label: 'Tasks', sections: ['Tasks', 'Workflow', 'AI Copilot', 'Rose'] },
   { id: 'documents', label: 'Documents', sections: ['Documents'] },
-  { id: 'medical', label: 'Medical', sections: ['Medical'] },
-  { id: 'claim', label: 'Claim', sections: ['Liability', 'Insurance', 'Damages'] },
+  { id: 'claim', label: 'Claim', sections: ['Medical', 'Liability', 'Insurance', 'Damages'] },
   { id: 'resolution', label: 'Resolution', sections: ['Demand', 'Negotiation', 'Settlement'] },
   { id: 'billing', label: 'Billing', sections: ['Time', 'Billing', 'Referrals'] },
 ]
@@ -51,6 +50,7 @@ export const SECTION_SUBTAB_LABEL: Partial<Record<CaseSection, string>> = {
   'Client Info': 'Client info',
   Timeline: 'Activity',
   Tasks: 'Queue',
+  Notes: 'Notes & calls',
   'AI Copilot': 'Ask Copilot',
   Billing: 'Invoices',
 }
@@ -66,6 +66,14 @@ export const SECTION_TO_TAB: Record<string, CaseSection> = {
   client: 'Client Info',
   contact: 'Client Info',
   contacts: 'Client Info',
+  notes: 'Notes',
+  'case-notes': 'Notes',
+  communications: 'Notes',
+  'contact-log': 'Notes',
+  messages: 'Notes',
+  consult: 'Notes',
+  health: 'Overview',
+  'case-health': 'Overview',
   timeline: 'Timeline',
   activity: 'Timeline',
   chronology: 'Timeline',
@@ -103,6 +111,8 @@ export const SECTION_TO_TAB: Record<string, CaseSection> = {
   invoices: 'Billing',
   invoice: 'Billing',
   payments: 'Billing',
+  finance: 'Billing',
+  expenses: 'Settlement',
   referrals: 'Referrals',
   referral: 'Referrals',
   'co-counsel': 'Referrals',
@@ -113,6 +123,7 @@ export const SECTION_TO_TAB: Record<string, CaseSection> = {
 export const TAB_TO_SECTION: Record<CaseSection, string> = {
   Overview: 'overview',
   'Client Info': 'client-info',
+  Notes: 'notes',
   Timeline: 'timeline',
   Tasks: 'tasks',
   Workflow: 'workflow',

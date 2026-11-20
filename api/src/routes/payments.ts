@@ -117,9 +117,10 @@ async function getAuthorizedLeadForAttorney(req: AuthRequest, leadId: string) {
     where: { assessmentId: lead.assessmentId, attorneyId: attorney.id },
     select: { id: true, status: true, requestedAt: true },
   })
-  const isShared = lead.assignmentType === 'shared'
+  // `assignmentType === 'shared'` is the schema default on every unclaimed
+  // lead and names no attorney, so it is no relationship to the case.
   const isAssigned = lead.assignedAttorneyId === attorney.id
-  if (!isShared && !isAssigned && !intro) {
+  if (!isAssigned && !intro) {
     return { error: { status: 403, message: 'Not authorized to access this lead' } }
   }
 
@@ -188,6 +189,7 @@ async function applySubscriptionCaseCredit(attorney: any, lead: any) {
     where: {
       attorneyId: attorney.id,
       type: 'routing_fee_subscription_credit',
+      status: 'applied',
       metadata: { contains: `"leadId":"${lead.id}"` },
     },
   })

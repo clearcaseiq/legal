@@ -503,11 +503,8 @@ export default function AttorneyDashboardLeadDetail({
                 : caseScoreForHeader >= 40
                   ? 'Medium'
                   : 'Low'
-            const incidentDateForSol = facts?.incident?.date ? new Date(facts.incident.date) : null
-            const solYears = 2
-            const solDeadlineDate = incidentDateForSol
-              ? new Date(incidentDateForSol.getTime() + solYears * 365 * 24 * 60 * 60 * 1000)
-              : null
+            const statute = (selectedLead as any)?.statuteOfLimitations
+            const solDeadlineDate = statute?.expiresAt ? new Date(statute.expiresAt) : null
             const solYearsRemainingForHeader = solDeadlineDate
               ? Math.max(0, (solDeadlineDate.getTime() - Date.now()) / (365 * 24 * 60 * 60 * 1000))
               : null

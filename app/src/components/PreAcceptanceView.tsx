@@ -93,7 +93,12 @@ interface PreAcceptanceViewProps {
   comparableCount: number | null
   comparableAvgSettlement?: number
   venueState?: string
-  attorneyProfile?: { specialties?: string[]; venues?: string[] }
+  attorneyProfile?: {
+    specialties?: string[]
+    venues?: string[]
+    minDamagesRange?: number | null
+    maxDamagesRange?: number | null
+  }
   onAccept: (opts?: { conflictAcknowledged?: boolean }) => void
   onDecline: () => void
   loading?: boolean
@@ -229,6 +234,29 @@ export default function PreAcceptanceView({
   const faultLabel = parsedFacts?.liability?.fault
     ? String(parsedFacts.liability.fault).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
     : null
+  const injuryList: string[] = (Array.isArray(parsedFacts?.injuries) ? parsedFacts.injuries : [])
+    .map((injury: any) =>
+      typeof injury === 'string' ? injury : injury?.description || injury?.type || injury?.bodyPart || '',
+    )
+    .map((text: string) => deidentifyText(String(text).replace(/_/g, ' '), plaintiffNameTokens).trim())
+    .filter(Boolean)
+    .slice(0, 6)
+  const statute = selectedLead?.statuteOfLimitations as
+    | { status: 'ok' | 'expiring_soon' | 'expired' | 'unknown'; expiresAt?: string; daysRemaining?: number | null }
+    | null
+    | undefined
+  const statuteDate = statute?.expiresAt
+    ? new Date(statute.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null
+  const statuteLabel = !statuteDate
+    ? 'Not enough information to calculate'
+    : statute?.status === 'expired'
+      ? `Passed on ${statuteDate}`
+      : typeof statute?.daysRemaining === 'number'
+        ? `${statuteDate} · ${statute.daysRemaining} days left`
+        : statuteDate
+  const statuteTone =
+    statute?.status === 'expired' ? 'text-red-700' : statute?.status === 'expiring_soon' ? 'text-amber-700' : 'text-gray-900'
   const policyLimit = Number(parsedFacts?.insurance?.policy_limit) || null
   const medSpecials = Number(parsedFacts?.damages?.med_charges) || null
   const treatmentProviders = Array.isArray(parsedFacts?.treatment) ? parsedFacts.treatment.length : treatments.length
@@ -284,14 +312,6 @@ export default function PreAcceptanceView({
   const evidenceScore = evidenceTotal > 0 ? Math.round((evidenceUploaded / evidenceTotal) * 100) : 0
   const evidenceStatus = evidenceUploaded > 0 ? `${evidenceUploaded}/${evidenceTotal} uploaded` : 'Pending'
   const missingDocuments = evidenceList.filter((item) => item.status !== 'Uploaded' && item.status !== 'Pending authorization')
-  const attorneyFitScore = Math.round(
-    [
-      venueState ? 1 : 0.5,
-      attorneyProfile?.specialties ? 1 : 0.5,
-      valueLow > 0 || valueHigh > 0 ? 1 : 0.5,
-      liabilityScore >= 0.5 ? 1 : 0,
-    ].reduce((sum, score) => sum + score, 0) / 4 * 100,
-  )
   const tabs = [
     { id: 'snapshot', label: 'Snapshot', icon: Gauge },
     { id: 'scene', label: 'Scene', icon: ImageIcon },
@@ -318,9 +338,22 @@ export default function PreAcceptanceView({
   const specialties = Array.isArray(attorneyProfile?.specialties)
     ? attorneyProfile.specialties
     : (typeof attorneyProfile?.specialties === 'string' ? (() => { try { return JSON.parse(attorneyProfile.specialties) } catch { return [] } })() : [])
-  if (specialties?.length) matchReasons.push(`${claimType} cases`)
+  const normalizeType = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z]/g, '')
+  const rawClaimType = normalizeType(selectedLead?.assessment?.claimType)
+  if (rawClaimType && (specialties || []).some((s: unknown) => normalizeType(s) === rawClaimType)) {
+    matchReasons.push(`${claimType} is one of your practice areas`)
+  }
   if (venueState) matchReasons.push(`${venueState} jurisdiction`)
-  if (valueLow > 0 && valueHigh > 0) matchReasons.push('Estimated value within your preferred range')
+  const minValuePref = Number(attorneyProfile?.minDamagesRange) || 0
+  const maxValuePref = Number(attorneyProfile?.maxDamagesRange) || 0
+  if (
+    valueHigh > 0 &&
+    (minValuePref > 0 || maxValuePref > 0) &&
+    valueHigh >= minValuePref &&
+    (!maxValuePref || valueLow <= maxValuePref)
+  ) {
+    matchReasons.push('Estimated value within your preferred range')
+  }
 
   const timeRemainingMs = caseExpiresAt ? caseExpiresAt.getTime() - now : null
   const isExpired = timeRemainingMs != null && timeRemainingMs <= 0
@@ -451,7 +484,8 @@ export default function PreAcceptanceView({
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Accepting charges the {routingFee} routing fee. <strong>All sales are final</strong> — once you
-              accept and pay, the case cannot be withdrawn or refunded.
+              accept and pay, the case cannot be withdrawn or refunded. If another attorney takes the case while
+              you are paying, the fee is refunded automatically.
             </span>
           </div>
         )}
@@ -528,6 +562,16 @@ export default function PreAcceptanceView({
           <div>
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">How</span>
             <p className="font-semibold text-gray-900">{faultLabel ? `${faultLabel} at fault` : claimType}</p>
+          </div>
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Filing deadline</span>
+            <p className={`font-semibold ${statuteTone}`}>{statuteLabel}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reported injuries</span>
+            <p className="font-semibold capitalize text-gray-900">
+              {injuryList.length > 0 ? injuryList.join(', ') : 'None listed yet'}
+            </p>
           </div>
         </div>
 
@@ -716,6 +760,27 @@ export default function PreAcceptanceView({
                   </ul>
                 </div>
               )}
+
+              <div
+                className={`rounded-xl border p-5 shadow-sm ${
+                  risks.length === 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'
+                }`}
+              >
+                <h3 className="text-sm font-semibold text-slate-900">Before you decide</h3>
+                <p className="mt-1 text-sm font-medium text-slate-800">{decisionRecommendation}</p>
+                {risks.length > 0 ? (
+                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                    {risks.map((r) => (
+                      <li key={r} className="flex items-center gap-2.5">
+                        <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-600">No gaps flagged in police report, treatment or documentation.</p>
+                )}
+              </div>
 
               {/* Advanced AI Analysis (Collapsed) */}
               <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">

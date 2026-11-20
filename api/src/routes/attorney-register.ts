@@ -8,6 +8,7 @@ import { isAdminEmail } from '../lib/admin-access'
 import { optionalPhone } from '../lib/phone'
 import { issueEmailVerification } from '../lib/email-verification'
 import { CURRENT_ATTORNEY_AGREEMENT_VERSION, recordAttorneyAgreementAcceptance } from '../lib/attorney-agreement'
+import { notifyAdmins } from '../lib/platform-notifications'
 
 const router = Router()
 
@@ -189,135 +190,141 @@ router.post('/register', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 12)
+    const firmSlug = firmName?.trim() ? await ensureUniqueFirmSlug(slugifyFirmName(firmName.trim())) : null
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        firstName,
-        lastName,
-        phone,
-        emailVerified: false,
-        isActive: true,
-        role: 'attorney'
-      }
-    })
+    // One transaction: a failure part-way used to leave the user row behind, so
+    // every retry was refused as "Email already registered".
+    const { user, lawFirm, attorney, attorneyProfile } = await prisma.$transaction(async (tx: any) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          firstName,
+          lastName,
+          phone,
+          emailVerified: false,
+          isActive: true,
+          role: 'attorney'
+        }
+      })
 
-    const intakeMeta =
-      intakeStatus || preferredConsultationMethod
-        ? JSON.stringify({
-            intakeStatus: intakeStatus ?? null,
-            preferredConsultationMethod: preferredConsultationMethod ?? null,
-          })
+      const intakeMeta =
+        intakeStatus || preferredConsultationMethod
+          ? JSON.stringify({
+              intakeStatus: intakeStatus ?? null,
+              preferredConsultationMethod: preferredConsultationMethod ?? null,
+            })
+          : null
+
+      const primaryFirmLocation = firmLocations?.[0]
+      const lawFirm = firmSlug
+        ? await (async () => {
+            // Always a new firm, never an existing one with the same name: the
+            // registrant becomes its admin, so matching by name would hand any
+            // signup admin access to whichever firm they named. Joining an
+            // existing firm is by invitation from its admin only.
+            const normalizedFirmName = firmName!.trim()
+            return tx.lawFirm.create({
+              data: {
+                name: normalizedFirmName,
+                slug: firmSlug,
+                primaryEmail: email,
+                phone: primaryFirmLocation?.phone || phone || null,
+                website: firmWebsite || null,
+                address: primaryFirmLocation?.address || null,
+                city: primaryFirmLocation?.city || null,
+                state: primaryFirmLocation?.state || null,
+                zip: primaryFirmLocation?.zip || null
+              }
+            })
+          })()
         : null
 
-    const primaryFirmLocation = firmLocations?.[0]
-    const lawFirm = firmName?.trim()
-      ? await (async () => {
-          // Always a new firm, never an existing one with the same name: the
-          // registrant becomes its admin, so matching by name would hand any
-          // signup admin access to whichever firm they named. Joining an
-          // existing firm is by invitation from its admin only.
-          const normalizedFirmName = firmName.trim()
-          const slug = await ensureUniqueFirmSlug(slugifyFirmName(normalizedFirmName))
-          return (prisma as any).lawFirm.create({
-            data: {
-              name: normalizedFirmName,
-              slug,
-              primaryEmail: email,
-              phone: primaryFirmLocation?.phone || phone || null,
-              website: firmWebsite || null,
-              address: primaryFirmLocation?.address || null,
-              city: primaryFirmLocation?.city || null,
-              state: primaryFirmLocation?.state || null,
-              zip: primaryFirmLocation?.zip || null
-            }
-          })
-        })()
-      : null
+      const attorney = await tx.attorney.create({
+        data: {
+          name,
+          email,
+          phone,
+          specialties: JSON.stringify(specialties),
+          venues: JSON.stringify(venues),
+          meta: intakeMeta,
+          isActive: true,
+          isVerified: false,
+          responseTimeHours: 24,
+          averageRating: 0,
+          totalReviews: 0,
+          lawFirmId: lawFirm?.id || null,
+        },
+      })
 
-    const attorney = await prisma.attorney.create({
-      data: {
-        name,
-        email,
-        phone,
-        specialties: JSON.stringify(specialties),
-        venues: JSON.stringify(venues),
-        meta: intakeMeta,
-        isActive: true,
-        isVerified: false,
-        responseTimeHours: 24,
-        averageRating: 0,
-        totalReviews: 0,
-        lawFirmId: lawFirm?.id || null,
-      },
+      const attorneyProfile = await tx.attorneyProfile.create({
+        data: {
+          attorneyId: attorney.id,
+          bio: '',
+          specialties: JSON.stringify(specialties),
+          secondaryCaseTypes: secondaryCaseTypes ? JSON.stringify(secondaryCaseTypes) : null,
+          languages: JSON.stringify(['English']),
+          yearsExperience: 0,
+          totalCases: 0,
+          totalSettlements: 0,
+          averageSettlement: 0,
+          successRate: 0,
+          verifiedVerdicts: JSON.stringify([]),
+          totalReviews: 0,
+          averageRating: 0,
+          firmName: firmName || null,
+          firmWebsite: firmWebsite || null,
+          firmLocations: firmLocations ? JSON.stringify(firmLocations) : null,
+          jurisdictions: JSON.stringify(jurisdictions),
+          minInjurySeverity: minInjurySeverity ?? null,
+          excludedCaseTypes: excludedCaseTypes ? JSON.stringify(excludedCaseTypes) : null,
+          minDamagesRange: minDamagesRange ?? null,
+          maxDamagesRange: maxDamagesRange ?? null,
+          insuranceRequired: insuranceRequired ?? null,
+          mustHaveMedicalTreatment: mustHaveMedicalTreatment ?? null,
+          requirePoliceReport: requirePoliceReport ?? null,
+          requireMedicalRecords: requireMedicalRecords ?? null,
+          maxCasesPerWeek: maxCasesPerWeek ?? null,
+          maxCasesPerMonth: maxCasesPerMonth ?? null,
+          intakeHours: intakeHours ? (intakeHours === '24/7' ? '24/7' : JSON.stringify(intakeHours)) : null,
+          licenseNumber: stateBarNumber || null,
+          licenseState: stateBarState || null,
+          pricingModel: pricingModel || null,
+          paymentModel: paymentModel || null,
+          subscriptionTier: subscriptionTier || null
+        }
+      })
+
+      if (lawFirm?.id) {
+        await tx.firmMember.upsert({
+          where: {
+            lawFirmId_userId: {
+              lawFirmId: lawFirm.id,
+              userId: user.id
+            }
+          },
+          update: {
+            attorneyId: attorney.id,
+            role: 'firm_admin',
+            status: 'active',
+            joinedAt: new Date()
+          },
+          create: {
+            lawFirmId: lawFirm.id,
+            userId: user.id,
+            attorneyId: attorney.id,
+            role: 'firm_admin',
+            title: 'Firm Admin',
+            status: 'active',
+            joinedAt: new Date()
+          }
+        })
+      }
+
+      return { user, lawFirm, attorney, attorneyProfile }
     })
 
     logger.info('Attorney created', { attorneyId: attorney.id, attorneyEmail: attorney.email })
-
-    const attorneyProfile = await prisma.attorneyProfile.create({
-      data: {
-        attorneyId: attorney.id,
-        bio: '',
-        specialties: JSON.stringify(specialties),
-        secondaryCaseTypes: secondaryCaseTypes ? JSON.stringify(secondaryCaseTypes) : null,
-        languages: JSON.stringify(['English']),
-        yearsExperience: 0,
-        totalCases: 0,
-        totalSettlements: 0,
-        averageSettlement: 0,
-        successRate: 0,
-        verifiedVerdicts: JSON.stringify([]),
-        totalReviews: 0,
-        averageRating: 0,
-        firmName: firmName || null,
-        firmWebsite: firmWebsite || null,
-        firmLocations: firmLocations ? JSON.stringify(firmLocations) : null,
-        jurisdictions: JSON.stringify(jurisdictions),
-        minInjurySeverity: minInjurySeverity ?? null,
-        excludedCaseTypes: excludedCaseTypes ? JSON.stringify(excludedCaseTypes) : null,
-        minDamagesRange: minDamagesRange ?? null,
-        maxDamagesRange: maxDamagesRange ?? null,
-        insuranceRequired: insuranceRequired ?? null,
-        mustHaveMedicalTreatment: mustHaveMedicalTreatment ?? null,
-        requirePoliceReport: requirePoliceReport ?? null,
-        requireMedicalRecords: requireMedicalRecords ?? null,
-        maxCasesPerWeek: maxCasesPerWeek ?? null,
-        maxCasesPerMonth: maxCasesPerMonth ?? null,
-        intakeHours: intakeHours ? (intakeHours === '24/7' ? '24/7' : JSON.stringify(intakeHours)) : null,
-        licenseNumber: stateBarNumber || null,
-        licenseState: stateBarState || null,
-        pricingModel: pricingModel || null,
-        paymentModel: paymentModel || null,
-        subscriptionTier: subscriptionTier || null
-      }
-    })
-
-    if (lawFirm?.id) {
-      await (prisma as any).firmMember.upsert({
-        where: {
-          lawFirmId_userId: {
-            lawFirmId: lawFirm.id,
-            userId: user.id
-          }
-        },
-        update: {
-          attorneyId: attorney.id,
-          role: 'firm_admin',
-          status: 'active',
-          joinedAt: new Date()
-        },
-        create: {
-          lawFirmId: lawFirm.id,
-          userId: user.id,
-          attorneyId: attorney.id,
-          role: 'firm_admin',
-          title: 'Firm Admin',
-          status: 'active',
-          joinedAt: new Date()
-        }
-      })
-    }
 
     // A failure here must not fail a registration whose account already exists:
     // the retry would be refused as a duplicate email. Without a record the
@@ -340,6 +347,19 @@ router.post('/register', async (req, res) => {
     // completed registration into a 500. The profile page shows the pending
     // state and offers a re-send if this never lands.
     void issueEmailVerification(user, { welcome: true })
+
+    // No attorney receives a lead until an admin approves them, and nothing
+    // else tells the admins someone is waiting.
+    void notifyAdmins({
+      subject: 'New attorney waiting for approval',
+      message:
+        `${attorney.name} (${email})${firmName ? ` at ${firmName}` : ''} registered` +
+        `${stateBarNumber ? ` with ${stateBarState || 'state'} bar #${stateBarNumber}` : ' without a bar number'}.` +
+        ' Review and approve them in Admin → Attorneys so they can start receiving cases.',
+      metadata: { eventType: 'attorney.registered', attorneyId: attorney.id },
+    }).catch((error: unknown) => {
+      logger.warn('Failed to notify admins of attorney registration', { error: (error as Error).message })
+    })
 
     const token = issueSessionToken(user)
 
@@ -374,7 +394,7 @@ router.post('/register', async (req, res) => {
     })
   } catch (error: any) {
     logger.error('Attorney registration failed', { error: error.message, stack: error.stack })
-    res.status(500).json({ error: 'Registration failed', details: error.message })
+    res.status(500).json({ error: 'Registration failed. Please try again.' })
   }
 })
 

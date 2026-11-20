@@ -28,6 +28,7 @@ export const PLAINTIFF_EVENTS = {
   more_info_requested: 'plaintiff.more_info_requested',
   no_attorney_response: 'plaintiff.no_attorney_response',
   demand_sent: 'plaintiff.demand_sent',
+  case_stage_changed: 'plaintiff.case_stage_changed',
   case_closed: 'plaintiff.case_closed',
 } as const
 

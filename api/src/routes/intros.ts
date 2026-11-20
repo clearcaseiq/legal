@@ -4,7 +4,7 @@ import { IntroRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { notifyAttorneyNewMatchInApp } from '../lib/case-notifications'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
-import { offerReferenceCode } from '../lib/offer-reference'
+import { matchesOfferReference } from '../lib/offer-reference'
 
 const router = Router()
 
@@ -115,11 +115,13 @@ router.get('/by-code/:code', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Malformed code' })
     }
 
-    // The code is the leading characters of the id, so the prefix search finds
-    // it without a column to index. `offerReferenceCode` is still the authority
-    // on the mapping, and filters the candidates below.
+    // The code is the trailing characters of the id (the leading ones on older
+    // messages), so a suffix or prefix search finds it without a column to
+    // index. `matchesOfferReference` is still the authority on the mapping.
     const candidates = await prisma.introduction.findMany({
-      where: { id: { startsWith: code.toLowerCase() } },
+      where: {
+        OR: [{ id: { endsWith: code.toLowerCase() } }, { id: { startsWith: code.toLowerCase() } }],
+      },
       orderBy: [{ requestedAt: 'desc' }, { createdAt: 'desc' }],
       select: {
         id: true,
@@ -134,7 +136,7 @@ router.get('/by-code/:code', authMiddleware, async (req: AuthRequest, res) => {
     // who is asking before giving up: two attorneys' offers can share a prefix,
     // but only one of them is the reader's.
     const mine = candidates
-      .filter((intro) => offerReferenceCode(intro.id) === code)
+      .filter((intro) => matchesOfferReference(intro.id, code))
       .filter((intro) => canAccessIntro(req, intro))
 
     if (mine.length === 0) {

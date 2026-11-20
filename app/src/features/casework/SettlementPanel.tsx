@@ -251,13 +251,19 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
   }
 
   const [statusBusy, setStatusBusy] = useState(false)
+  const [needsClientApproval, setNeedsClientApproval] = useState(false)
+  const [clientApprovalNote, setClientApprovalNote] = useState('')
   const changeStatus = async (status: 'draft' | 'finalized' | 'disbursed') => {
     setStatusBusy(true)
     setError(null)
     try {
-      const d = await setLeadSettlementStatus(leadId, status)
+      const note = status === 'finalized' && needsClientApproval ? clientApprovalNote.trim() : ''
+      const d = await setLeadSettlementStatus(leadId, status, note ? { clientApprovalNote: note } : {})
       applyData(d)
+      setNeedsClientApproval(false)
+      setClientApprovalNote('')
     } catch (err: any) {
+      if (err?.response?.data?.code === 'CLIENT_ACCEPTANCE_REQUIRED') setNeedsClientApproval(true)
       setError(err?.response?.data?.error || 'Could not update settlement status.')
     } finally {
       setStatusBusy(false)
@@ -302,7 +308,9 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
             <button
               type="button"
               onClick={() => changeStatus('finalized')}
-              disabled={statusBusy || !(data.gross > 0)}
+              disabled={
+                statusBusy || !(data.gross > 0) || (needsClientApproval && clientApprovalNote.trim().length < 10)
+              }
               title={!(data.gross > 0) ? 'Enter the agreed settlement amount first' : undefined}
               className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
             >
@@ -335,6 +343,22 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
             </span>
           )}
         </div>
+        {data.status === 'draft' && needsClientApproval && (
+          <label className="w-full text-xs font-semibold text-slate-700">
+            How did the client approve this amount?
+            <textarea
+              value={clientApprovalNote}
+              onChange={(e) => setClientApprovalNote(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              placeholder="e.g. Signed release received 11/19 by email; client confirmed by phone with Maria present."
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-normal text-slate-800"
+            />
+            <span className="mt-1 block font-normal text-slate-500">
+              Recorded in the case history. Sharing the offer from Negotiation lets the client accept it in their portal instead.
+            </span>
+          </label>
+        )}
       </div>
 
       {/* Warnings — the guardrails */}

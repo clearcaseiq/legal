@@ -668,7 +668,7 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'newMatches'}
             onClick={() => applyRoutingInboxView('newMatches', {}, null)}
-            hint={hintText("Cases routed to you that you haven't opened yet.")}
+            hint={hintText('Open matches waiting for you to accept or decline before the window closes.')}
           />
           <FilterStat
             value={routingInboxSummary.hotMatches}
@@ -1063,7 +1063,7 @@ export default function AttorneyDashboardLeadsTab({
                         )}
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="flex">
+                        <div className="flex flex-col items-start gap-1">
                           {pendingQuickAction ? (
                             <button
                               onClick={() =>
@@ -1091,6 +1091,16 @@ export default function AttorneyDashboardLeadsTab({
                               }
                             >
                               {isExpiredMatch(lead) ? 'View' : 'Review'}
+                            </button>
+                          )}
+                          {!pendingQuickAction && isNewMatch(lead) && (
+                            <button
+                              type="button"
+                              onClick={() => onDeclineLead(lead.id)}
+                              title="Pass on this match so it goes to the next attorney"
+                              className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                            >
+                              Decline
                             </button>
                           )}
                         </div>

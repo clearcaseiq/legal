@@ -146,6 +146,8 @@ import CaseIntelligencePanel from './CaseIntelligencePanel'
 import CaseCopilotPanel from './CaseCopilotPanel'
 import CaseRosePanel from './CaseRosePanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
+import CaseNotesPanel from './CaseNotesPanel'
+import CaseHealthCard from './CaseHealthCard'
 import TaskDetailModal from './TaskDetailModal'
 import TaskOriginBadge, { isAiTask, isRoseTask } from './TaskOriginBadge'
 import MergeTasksDialog from './MergeTasksDialog'
@@ -238,6 +240,7 @@ type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 const TAB_META: Record<Tab, TabMeta> = {
   Overview: { icon: LayoutDashboard, blurb: 'AI case summary, valuation, and readiness at a glance.' },
   'Client Info': { icon: User, blurb: 'The client’s contact details and mailing address on file. Edit to correct them.' },
+  Notes: { icon: PenLine, blurb: 'Private team notes and a log of every call, email, text, and meeting with the client.' },
   'AI Copilot': {
     icon: Sparkles,
     blurb: 'Ask case-specific questions with cited answers, and see workup readiness for this matter.',
@@ -268,9 +271,7 @@ const TAB_META: Record<Tab, TabMeta> = {
 const GROUP_ICON: Record<string, ComponentType<{ className?: string }>> = {
   overview: LayoutDashboard,
   tasks: ListChecks,
-  ai: Sparkles,
   documents: FolderOpen,
-  medical: Stethoscope,
   claim: Shield,
   resolution: Scale,
   billing: Receipt,
@@ -438,7 +439,9 @@ export default function CaseWorkspacePage() {
   const [showCongrats, setShowCongrats] = useState(searchParams.get('accepted') === '1')
   // Right after a purchase/accept, prompt the attorney to schedule the first
   // consultation with the client (invokes the scheduling/Calendly engine).
-  const [showScheduler, setShowScheduler] = useState(searchParams.get('accepted') === '1')
+  const [showScheduler, setShowScheduler] = useState(
+    searchParams.get('accepted') === '1' || searchParams.get('schedule') === '1',
+  )
   // Where the user came from, so the back button + tab navigation return there.
   const fromParam = searchParams.get('from')
   const fromSuffix = fromParam ? `?from=${fromParam}` : ''
@@ -1148,6 +1151,10 @@ function WorkstreamPanel({
     return <ClientInfoPanel leadId={lead.id} tasks={tasks} reloadTasks={reloadTasks} onSaved={onContactSaved} />
   }
 
+  if (tab === 'Notes') {
+    return <CaseNotesPanel leadId={lead.id} />
+  }
+
   if (tab === 'Documents') {
     return <DocumentsPanel lead={lead} detail={detail} section={section} />
   }
@@ -1541,8 +1548,9 @@ function WorkstreamPanel({
     const events: TimelineEvent[] = []
     const openedAt = lead?.submittedAt || a?.createdAt || null
     if (openedAt) events.push({ date: openedAt, title: 'Case submitted', detail: 'Intake completed and matter opened.', by: 'Client', category: 'intake' })
-    if (lead?.status === 'retained' && lead?.retainedAt)
-      events.push({ date: lead.retainedAt, title: 'Representation active', detail: 'Retainer executed — matter retained.', by: 'Attorney', category: 'retainer' })
+    const retainedAt = lead?.convertedAt || lead?.retainedAt
+    if (lead?.status === 'retained' && retainedAt)
+      events.push({ date: retainedAt, title: 'Representation active', detail: 'Retainer executed — matter retained.', by: 'Attorney', category: 'retainer' })
     if (lead?.lastContactAt) events.push({ date: lead.lastContactAt, title: 'Client contact made', by: 'Attorney', category: 'contact' })
     const treatedAt = cc?.treatmentMonitor?.latestTreatmentDate
     if (treatedAt) {
@@ -1736,6 +1744,7 @@ function WorkstreamPanel({
         {/* AI Case Intelligence — Summary first so attorneys see the case at a glance */}
         <CaseIntelligencePanel leadId={lead.id} onUpdated={() => void reloadCc()} />
         {!isStaff && <AttorneyPredictionReviewPanel leadId={lead.id} />}
+        <CaseHealthCard leadId={lead.id} canSave={!isStaff || can('manage')} />
 
         {actionMsg ? (
           <div

@@ -133,11 +133,14 @@ async function withdrawTimeBarredOffer(
     select: { id: true, attorneyId: true },
   })
 
+  let withdrawn = 0
   for (const intro of pending) {
-    await prisma.introduction.update({
-      where: { id: intro.id },
+    const lapsed = await prisma.introduction.updateMany({
+      where: { id: intro.id, status: 'PENDING' },
       data: { status: 'EXPIRED', respondedAt: new Date() },
     })
+    if (lapsed.count === 0) continue
+    withdrawn += 1
     await recordRoutingEvent(lead.assessmentId, intro.id, intro.attorneyId, 'expired', {
       reason: 'statute_of_limitations_expired',
       expiredOn,
@@ -153,10 +156,12 @@ async function withdrawTimeBarredOffer(
     }).catch(() => {})
   }
 
-  await prisma.leadSubmission.update({
-    where: { id: lead.id },
-    data: { lifecycleState: 'not_routable_yet', routingLocked: false },
+  // An attorney who accepted while the sweep ran keeps the case.
+  const parked = await prisma.leadSubmission.updateMany({
+    where: { id: lead.id, routingLocked: false },
+    data: { lifecycleState: 'not_routable_yet' },
   })
+  if (parked.count === 0) return withdrawn
   await recordRoutingEvent(lead.assessmentId, null, null, 'not_routable_yet', {
     reason: 'Statute of limitations has expired',
     expiredOn,
@@ -164,7 +169,7 @@ async function withdrawTimeBarredOffer(
     source: 'sol_expiry_sweep',
   })
 
-  return pending.length
+  return withdrawn
 }
 
 /**

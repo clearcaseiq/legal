@@ -185,9 +185,10 @@ describe('routing-fee checkout guard', () => {
     expect(reachedPaymentStage()).toBe(false)
   })
 
-  it('still opens checkout for a shared lead with no introduction row', async () => {
-    // Shared/pool leads reach the attorney without an Introduction; the decision
-    // endpoint backfills one on accept, so payment must not be blocked here.
+  it('refuses checkout for a shared lead the attorney was never offered', async () => {
+    // `shared` is the default on every unclaimed lead and names no attorney.
+    // The decision endpoint refuses that accept (CP-481), so charging for it
+    // would bill the attorney for a case they can never take.
     vi.mocked((prisma as any).leadSubmission.findUnique).mockResolvedValue({
       ...LEAD,
       assignmentType: 'shared',
@@ -197,7 +198,7 @@ describe('routing-fee checkout guard', () => {
 
     const res = await startCheckout()
 
-    expect(res.status).toBe(200)
-    expect(reachedPaymentStage()).toBe(true)
+    expect(res.status).toBe(403)
+    expect(reachedPaymentStage()).toBe(false)
   })
 })

@@ -19,7 +19,6 @@ import { getAttorneyDashboard, getMyAttorneyProfile, decideLead, updateLeadStatu
 import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
-import { AttorneyAgreementGate } from '../components/AttorneyAgreement'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
@@ -680,7 +679,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     } else if (action === 'scheduleConsult') {
       setLeadPhaseTab('post')
       setContactForm((prev) => ({ ...prev, contactType: 'consult' }))
-      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/overview?schedule=1`)
     } else if (action === 'documentRequest') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/documents?view=requests`)
@@ -692,7 +691,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'timeEntry') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/time`)
     } else if (action === 'addTask' || section === 'tasks') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/tasks`)
@@ -701,7 +700,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       navigate(`/attorney-dashboard/lead/${lead.id}/demand`)
     } else if (action === 'addExpense' || section === 'insurance') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/insurance`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/expenses`)
     } else if (action === 'createInvoice' || section === 'billing') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
@@ -725,7 +724,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
     } else if (action === 'scheduleConsult') {
       setLeadPhaseTab('post')
       setContactForm((prev) => ({ ...prev, contactType: 'consult' }))
-      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/overview?schedule=1`)
     } else if (action === 'documentRequest') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/documents?view=requests`)
@@ -737,7 +736,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'timeEntry') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/time`)
     } else if (action === 'addTask' || section === 'tasks') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/tasks`)
@@ -746,7 +745,7 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
       navigate(`/attorney-dashboard/lead/${lead.id}/demand`)
     } else if (action === 'addExpense' || section === 'insurance') {
       setLeadPhaseTab('post')
-      navigate(`/attorney-dashboard/lead/${lead.id}/insurance`)
+      navigate(`/attorney-dashboard/lead/${lead.id}/expenses`)
     } else if (action === 'createInvoice' || section === 'billing') {
       setLeadPhaseTab('post')
       navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
@@ -1766,8 +1765,10 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
           declineReason,
           opts
         )
+        // A decline answers only this attorney's offer; the case itself stays
+        // open for the others in the wave, so the server keeps it `submitted`.
         updateLeadInState(leadId, {
-          status: updated.status || (decision === 'accept' ? 'contacted' : 'rejected')
+          status: decision === 'accept' ? updated.status || 'contacted' : 'rejected'
         })
         invalidateAttorneyDashboardSummary()
         setDecisionRationale('')
@@ -3112,7 +3113,6 @@ export default function AttorneyDashboardShell({ chromeless = false, initialView
 
   return (
     <div className="space-y-8">
-      <AttorneyAgreementGate />
       {/* A rejected accept/decline (e.g. a firm admin acting on another
           associate's lead) must be visible wherever it was triggered — the
           pre-acceptance card alone left the overview table silent (CP-393). */}

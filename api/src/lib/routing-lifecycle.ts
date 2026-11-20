@@ -1148,51 +1148,62 @@ export async function attorneyDeclineCase(
     })
   })
 
+  await advanceRoutingAfterDecline(intro.assessmentId, attorneyId)
+  logger.info('Attorney declined case', { introductionId, attorneyId, declineReason })
+  return { success: true }
+}
+
+/**
+ * Move routing on after one attorney declines their offer. The case stays open
+ * for any other attorney still holding a live offer; only plaintiff-ranked
+ * routing hands the case to the next attorney immediately.
+ */
+export async function advanceRoutingAfterDecline(assessmentId: string, declinedAttorneyId: string): Promise<void> {
   const lead = await prisma.leadSubmission.findUnique({
-    where: { assessmentId: intro.assessmentId },
+    where: { assessmentId },
     select: {
       routingLocked: true,
       sourceDetails: true
     }
   })
+  if (lead?.routingLocked) return
 
-  if (!lead?.routingLocked && getRankedAttorneyIdsFromLead(lead).length > 0) {
-    const nextRankedRoute = await advanceRankedRouting(intro.assessmentId, lead ?? {}, 'declined')
+  if (getRankedAttorneyIdsFromLead(lead).length > 0) {
+    await markOpenWavesEscalated(assessmentId)
+    const nextRankedRoute = await advanceRankedRouting(assessmentId, lead ?? {}, 'declined')
     if (nextRankedRoute.routed) {
       logger.info('Advanced to next ranked attorney after decline', {
-        assessmentId: intro.assessmentId,
-        declinedAttorneyId: attorneyId,
+        assessmentId,
+        declinedAttorneyId,
         nextAttorneyId: nextRankedRoute.attorneyId,
         waveNumber: nextRankedRoute.waveNumber
       })
-      return { success: true }
+      return
     }
 
     if (nextRankedRoute.awaitingApproval) {
       logger.info('Holding routing for plaintiff approval after decline', {
-        assessmentId: intro.assessmentId,
-        declinedAttorneyId: attorneyId,
+        assessmentId,
+        declinedAttorneyId,
         proposedAttorneyIds: nextRankedRoute.proposedAttorneyIds
       })
-      return { success: true }
+      return
     }
 
     await placeAssessmentInManualReview(
-      intro.assessmentId,
+      assessmentId,
       'plaintiff_ranked_routing_exhausted',
       'All plaintiff-ranked attorneys declined, timed out, or became unavailable.'
     )
     logger.info('Plaintiff-ranked routing exhausted after decline', {
-      assessmentId: intro.assessmentId,
-      declinedAttorneyId: attorneyId,
+      assessmentId,
+      declinedAttorneyId,
       error: nextRankedRoute.error
     })
-    return { success: true }
+    return
   }
 
-  await updateLeadLifecycleState(intro.assessmentId, 'routing_active')
-  logger.info('Attorney declined case', { introductionId, attorneyId, declineReason })
-  return { success: true }
+  await updateLeadLifecycleState(assessmentId, 'routing_active')
 }
 
 // NOTE: "Request more info" is intentionally NOT a pre-acceptance routing
@@ -1271,6 +1282,18 @@ async function markWaveEscalated(
   }
 }
 
+/** Retire every not-yet-escalated wave so the sweep cannot pick one up again. */
+async function markOpenWavesEscalated(assessmentId: string): Promise<void> {
+  await prisma.routingWave
+    .updateMany({
+      where: { assessmentId, escalatedAt: null },
+      data: { escalatedAt: new Date() },
+    })
+    .catch((err: unknown) => {
+      logger.warn('Failed to retire open routing waves', { assessmentId, error: (err as Error).message })
+    })
+}
+
 /**
  * Step 13: Run next escalation wave
  * Called when wave N timeout expires and no attorney has accepted
@@ -1294,6 +1317,17 @@ export async function runEscalationWave(assessmentId: string): Promise<{
 
   const rankedAttorneyIds = getRankedAttorneyIdsFromLead(lead)
   if (rankedAttorneyIds.length > 0) {
+    // Ranked routing offers one attorney at a time. While that offer is still
+    // live, the next attorney's turn has not come yet; the expiry sweep calls
+    // back here once the offer lapses.
+    const liveOffer = await prisma.introduction.findFirst({
+      where: { assessmentId, status: 'PENDING' },
+      select: { id: true },
+    })
+    if (liveOffer) {
+      return { escalated: false, error: 'Current ranked offer is still open' }
+    }
+
     // Capture the wave that just came due before advancing, because a successful
     // advance creates the next one — stamping the newest wave would retire a
     // window that has not opened yet.

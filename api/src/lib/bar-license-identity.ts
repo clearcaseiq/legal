@@ -12,8 +12,9 @@
  * badge from a real attorney because the Bar lists a maiden name, a middle name
  * or a firm-style "John Q. Smith III" is a support ticket and an insult.
  * Granting one on a stranger's licence is the failure the check exists to stop.
- * Sharing a single meaningful name token clears the bar, so a rename or a
- * reordering passes while an unrelated person does not.
+ * When the account surname is known, the record must carry it or share two
+ * names with the account: a common first name alone is not evidence. A
+ * married-name change therefore fails here and goes to admin review.
  */
 import { nameTokens } from './claimant-identity-check'
 
@@ -43,6 +44,7 @@ export interface BarNameComparison {
 export function compareBarRecordName(
   recordName: string | null | undefined,
   registeredName: string | null | undefined,
+  options: { surname?: string | null } = {},
 ): BarNameComparison {
   const record = String(recordName ?? '').trim()
   const recordTokens = nameTokens(record)
@@ -52,8 +54,15 @@ export function compareBarRecordName(
     return { match: 'unknown', recordName: record || null }
   }
 
-  const shared = recordTokens.some((token) => registeredTokens.includes(token))
-  return { match: shared ? 'match' : 'mismatch', recordName: record }
+  const sharedCount = recordTokens.filter((token) => registeredTokens.includes(token)).length
+  // With a known surname, a lone shared first name ("John") is not enough:
+  // the record has to carry the surname, or two of the registered names.
+  const surnameTokens = nameTokens(options.surname)
+  if (surnameTokens.length > 0) {
+    const surnameOnRecord = surnameTokens.some((token) => recordTokens.includes(token))
+    return { match: surnameOnRecord || sharedCount >= 2 ? 'match' : 'mismatch', recordName: record }
+  }
+  return { match: sharedCount > 0 ? 'match' : 'mismatch', recordName: record }
 }
 
 /**

@@ -55,6 +55,9 @@ function preview(body: Record<string, unknown>) {
 
 /** The registering attorney's name, as stored on the account. */
 function accountNamed(name: string) {
+  // The bar check compares against the login account's name, so name it too.
+  const [firstName, ...rest] = name.split(' ')
+  vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...attorneyUser, firstName, lastName: rest.join(' ') } as any)
   vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
     id: 'att-1',
     email: attorneyUser.email,

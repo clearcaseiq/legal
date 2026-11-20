@@ -83,4 +83,4 @@ Resolution → Settlement models the money from gross recovery to the client’s
 
 ## Settlement statuses
 
-A settlement starts as Draft. Click "Finalize settlement" once the agreed amount is entered; it then shows "Finalized — funds pending". When the money has gone out, click "Mark disbursed" and it shows Disbursed with the date and who marked it. While finalized, you can Reopen it to make changes.
+A settlement starts as Draft. Click "Finalize settlement" once the agreed amount is entered and the client has approved it, either by accepting a matching offer you shared from Negotiation or, if they approved it another way, by noting how; it then shows "Finalized — funds pending". When the money has gone out, click "Mark disbursed" and it shows Disbursed with the date and who marked it. While finalized, you can Reopen it to make changes.

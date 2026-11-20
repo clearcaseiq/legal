@@ -23,6 +23,17 @@ describe('offerReferenceCode', () => {
   it('survives ids with punctuation, so hyphenated uuids still produce a typable code', () => {
     expect(offerReferenceCode('a1b2-c3d4-e5f6')).toMatch(/^[A-Z0-9]{6}$/)
   })
+
+  it('separates offers created in the same minute, whose cuids share a timestamp prefix', () => {
+    expect(offerReferenceCode('cmh1a2b3c0001xyzqrs4k9p2')).not.toBe(offerReferenceCode('cmh1a2b3c0002abcwtv7m3d8'))
+  })
+})
+
+describe('selectOfferForReply with codes from older messages', () => {
+  it('still resolves a code built from the leading characters', () => {
+    const offer = { id: 'cmh1a2b3c0001xyzqrs4k9p2' }
+    expect(selectOfferForReply([offer], 'CMH1A2')).toEqual({ ok: true, introductionId: offer.id })
+  })
 })
 
 /**

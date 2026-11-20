@@ -107,6 +107,23 @@
     "associatedWith": "Asociado con",
     "comingSoon": "Próximamente",
     "soon": "Pronto",
+    "readiness": {
+      "title": "Todavía no está recibiendo casos",
+      "intro": "Solo le enviamos casos cuando todos los puntos de abajo estén completos.",
+      "onlyApproval": "Su perfil está completo. Empezará a recibir casos en cuanto nuestro equipo apruebe su cuenta, normalmente en un día hábil.",
+      "done": "Completado: ",
+      "todo": "Pendiente: ",
+      "fix": "Corregir",
+      "items": {
+        "approval": "Cuenta aprobada por ClearCaseIQ",
+        "approvalPending": "Aprobación de la cuenta: en revisión desde el {{date}}",
+        "agreement": "Acuerdo de Participación del Abogado aceptado",
+        "states": "Al menos un estado donde ejerce",
+        "caseTypes": "Al menos un tipo de caso",
+        "responseTime": "Tiempo de respuesta de 48 horas o menos",
+        "active": "Cuenta activa"
+      }
+    },
     "notifications": {
       "label": "Notificaciones",
       "description": "Coincidencias, plazos y actividad"

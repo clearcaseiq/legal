@@ -62,18 +62,32 @@ describe('runSolExpirySweep', () => {
     const result = await runSolExpirySweep()
 
     expect(result).toMatchObject({ scanned: 1, held: 1, offersWithdrawn: 1, notified: 0 })
-    expect(vi.mocked(prisma.introduction.update)).toHaveBeenCalledWith(
+    expect(vi.mocked(prisma.introduction.updateMany)).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'intro-1' },
+        where: { id: 'intro-1', status: 'PENDING' },
         data: expect.objectContaining({ status: 'EXPIRED' }),
       }),
     )
-    expect(vi.mocked(prisma.leadSubmission.update)).toHaveBeenCalledWith(
+    expect(vi.mocked(prisma.leadSubmission.updateMany)).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'lead-1' },
+        where: { id: 'lead-1', routingLocked: false },
         data: expect.objectContaining({ lifecycleState: 'not_routable_yet' }),
       }),
     )
+  })
+
+  it('leaves an offer alone when the attorney accepted it mid-sweep', async () => {
+    vi.mocked(prisma.leadSubmission.findMany).mockResolvedValue([lead()] as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      { id: 'intro-1', attorneyId: 'att-1' },
+    ] as any)
+    vi.mocked(prisma.introduction.updateMany).mockResolvedValue({ count: 0 } as any)
+    vi.mocked(prisma.leadSubmission.updateMany).mockResolvedValue({ count: 0 } as any)
+
+    const result = await runSolExpirySweep()
+
+    expect(result).toMatchObject({ offersWithdrawn: 0 })
+    expect(notifyMock).not.toHaveBeenCalled()
   })
 
   it('does not escalate a time-barred case to the next attorney', async () => {

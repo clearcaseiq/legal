@@ -24,6 +24,8 @@ import { TourProvider } from '../tour/TourProvider'
 import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorkspaceContext'
 import { initials } from './ui'
 import GlobalSearch from './GlobalSearch'
+import AttorneyReadinessBanner from './AttorneyReadinessBanner'
+import { AttorneyAgreementGate } from '../../components/AttorneyAgreement'
 import { isCalendarRoute, isWideAttorneyRoute } from '../../lib/layoutWidth'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { useFirmAccess, type FirmAction } from '../../hooks/useFirmAccess'
@@ -492,6 +494,12 @@ function WorkspaceChrome() {
         <div className="min-w-0 flex-1 space-y-4">
           {!isLeadGen && !isCalendar && !isStaff && <GlobalSearch />}
           <MobileNav />
+          {!isStaff && (
+            <>
+              <AttorneyAgreementGate />
+              <AttorneyReadinessBanner />
+            </>
+          )}
           <Outlet />
         </div>
       </div>

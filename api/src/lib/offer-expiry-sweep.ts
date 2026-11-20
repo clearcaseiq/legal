@@ -17,7 +17,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 import { runEscalationWave, recordRoutingEvent } from './routing-lifecycle'
-import { notifyAttorneyInApp } from './case-notifications'
+import { notifyAttorneyInApp, sendOfferExpiringToAttorney } from './case-notifications'
 import { ATTORNEY_EVENTS } from './notification-events'
 import { getNotificationTiming, getOfferExpiryWarningMinutes } from './notification-timing-config'
 
@@ -46,7 +46,7 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
     const warnStart = new Date(now - (deadlineMinutes - warnMinutes) * 60 * 1000)
     const soon = await prisma.introduction.findMany({
       where: { status: 'PENDING', requestedAt: { lte: warnStart, gt: cutoff } },
-      select: { id: true, assessmentId: true, attorneyId: true },
+      select: { id: true, assessmentId: true, attorneyId: true, requestedAt: true },
     })
     if (soon.length > 0) {
       const soonLeads = await prisma.leadSubmission.findMany({
@@ -61,8 +61,10 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
       for (const intro of soon) {
         const leadId = openLeadByAssessment.get(intro.assessmentId)
         if (!leadId) continue
-        const already = await prisma.notification.findFirst({
-          where: { type: ATTORNEY_EVENTS.case_expiring, metadata: { contains: intro.id } },
+        // Every channel writes a platform event, so this dedupes text and email
+        // too even when the attorney has no login for the bell entry.
+        const already = await prisma.platformNotificationEvent.findFirst({
+          where: { eventType: ATTORNEY_EVENTS.case_expiring, payloadJson: { contains: intro.id } },
           select: { id: true },
         })
         if (already) continue
@@ -73,8 +75,16 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
           subject: 'Match expiring soon',
           body: 'Your response window on a matched case is almost up. Review and accept it before it is released to another attorney.',
           leadId,
-          link: `/attorney-dashboard/lead/${leadId}/overview`,
+          link: `/attorney-dashboard/leadgen/matches/${leadId}/overview`,
           payload: { introductionId: intro.id },
+        }).catch(() => {})
+        const minutesLeft = (intro.requestedAt.getTime() + deadlineMinutes * 60 * 1000 - now) / 60000
+        await sendOfferExpiringToAttorney({
+          attorneyId: intro.attorneyId,
+          introductionId: intro.id,
+          assessmentId: intro.assessmentId,
+          leadId,
+          minutesLeft,
         }).catch(() => {})
       }
     }
@@ -112,10 +122,13 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
   let expired = 0
   for (const intro of toExpire) {
     try {
-      await prisma.introduction.update({
-        where: { id: intro.id },
+      // Conditional on PENDING: an accept or decline can land between the read
+      // above and this write, and a plain update would overwrite it.
+      const lapsed = await prisma.introduction.updateMany({
+        where: { id: intro.id, status: 'PENDING' },
         data: { status: 'EXPIRED', respondedAt: new Date() },
       })
+      if (lapsed.count === 0) continue
       expired += 1
       await recordRoutingEvent(intro.assessmentId, intro.id, intro.attorneyId, 'expired', {
         reason: 'offer_response_window_elapsed',

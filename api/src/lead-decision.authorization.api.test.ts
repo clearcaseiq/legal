@@ -148,6 +148,23 @@ describe('POST /leads/:leadId/decision authorization', () => {
     expect(res.body.code).not.toBe('AGREEMENT_REQUIRED')
   })
 
+  it('declines only this offer and leaves the case open for the rest of the wave', async () => {
+    vi.mocked((prisma as any).introduction.findFirst).mockResolvedValue({
+      id: 'intro-9',
+      status: 'PENDING',
+      requestedAt: new Date(Date.now() - 60 * 1000),
+    } as any)
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-9/decision')
+      .set(auth)
+      .send({ decision: 'reject', declineReason: 'capacity' })
+
+    expect(res.status).toBe(200)
+    const statusWrites = leadWrites().filter(([args]: any[]) => args?.data?.status === 'rejected')
+    expect(statusWrites).toHaveLength(0)
+  })
+
   it('allows the attorney the case is already assigned to', async () => {
     vi.mocked((prisma as any).leadSubmission.findUnique).mockResolvedValue({
       ...SHARED_LEAD,
@@ -298,7 +315,7 @@ describe('POST /leads/:leadId/status authorization', () => {
     expect(leadWrites()).toHaveLength(0)
   })
 
-  it('allows an attorney holding an offer on the case', async () => {
+  it('allows an attorney who accepted the case', async () => {
     vi.mocked((prisma as any).introduction.findFirst).mockResolvedValue({
       id: 'intro-9',
       status: 'ACCEPTED',
@@ -310,5 +327,45 @@ describe('POST /leads/:leadId/status authorization', () => {
       .send({ status: 'consulted' })
 
     expect(res.status).toBe(200)
+  })
+
+  it('refuses an attorney whose offer is still pending, so status cannot claim the case', async () => {
+    vi.mocked((prisma as any).introduction.findFirst).mockResolvedValue({
+      id: 'intro-9',
+      status: 'PENDING',
+    } as any)
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-9/status')
+      .set(auth)
+      .send({ status: 'retained' })
+
+    expect(res.status).toBe(403)
+    expect(leadWrites()).toHaveLength(0)
+  })
+})
+
+describe('POST /leads/:leadId/contact authorization', () => {
+  it('refuses an attorney who does not hold the case', async () => {
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-9/contact')
+      .set(auth)
+      .send({ contactType: 'call', contactMethod: 'phone', notes: 'hi' })
+
+    expect(res.status).toBe(403)
+    expect(vi.mocked((prisma as any).leadContact.create)).not.toHaveBeenCalled()
+    expect(leadWrites()).toHaveLength(0)
+  })
+})
+
+describe('client data on a pending offer', () => {
+  it('withholds client contact until the attorney accepts', async () => {
+    vi.mocked((prisma as any).introduction.findFirst).mockImplementation(async (args: any) =>
+      args?.where?.status === 'ACCEPTED' ? null : ({ id: 'intro-9', status: 'PENDING' } as any),
+    )
+
+    const res = await request(app).get('/v1/attorney-dashboard/leads/lead-9/client-contact').set(auth)
+
+    expect(res.status).toBe(403)
   })
 })

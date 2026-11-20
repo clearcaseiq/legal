@@ -107,6 +107,23 @@
     "associatedWith": "所属律所",
     "comingSoon": "即将推出",
     "soon": "即将",
+    "readiness": {
+      "title": "您目前还不会收到案件",
+      "intro": "只有在以下各项全部完成后，系统才会向您分配案件。",
+      "onlyApproval": "您的资料已完善。我们的团队批准您的账户后（通常在一个工作日内），您就会开始收到案件。",
+      "done": "已完成：",
+      "todo": "待完成：",
+      "fix": "去完善",
+      "items": {
+        "approval": "账户已获 ClearCaseIQ 批准",
+        "approvalPending": "账户审批：自 {{date}} 起审核中",
+        "agreement": "已接受《律师参与协议》",
+        "states": "至少选择一个执业州",
+        "caseTypes": "至少选择一种案件类型",
+        "responseTime": "响应时间不超过 48 小时",
+        "active": "账户已启用"
+      }
+    },
     "notifications": {
       "label": "通知",
       "description": "匹配、截止日期和动态"

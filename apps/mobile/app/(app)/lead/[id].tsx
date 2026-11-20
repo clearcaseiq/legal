@@ -281,7 +281,7 @@ export default function LeadDetailScreen() {
 
   // Case overview (mirrors the web workspace Overview/Info: timeline, status, tasks, case info).
   const openedAtRaw = lead?.submittedAt || assessment?.createdAt || lead?.createdAt || null
-  const retainedAtRaw = lead?.retainedAt || null
+  const retainedAtRaw = lead?.status === 'retained' ? lead?.convertedAt || lead?.retainedAt || null : null
   const stageLabelText = lifecycleLabel || formatStatus(lead?.status) || 'No stage'
   // Passed to the tasks screen so it can title itself without refetching the case.
   const caseTasksLabel = lead ? leadLabel(lead) : ''

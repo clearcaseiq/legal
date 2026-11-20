@@ -50,6 +50,9 @@ beforeAll(async () => {
 }, 120_000)
 
 function accountNamed(name: string) {
+  // The bar check compares against the login account's name, so name it too.
+  const [firstName, ...rest] = name.split(' ')
+  vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...attorneyUser, firstName, lastName: rest.join(' ') } as any)
   vi.mocked(prisma.attorney.findUnique).mockResolvedValue({
     id: 'att-1',
     email: attorneyUser.email,
@@ -134,8 +137,15 @@ describe('STATE_BAR_LOOKUP_MODE=mock', () => {
     expect(res.body.error).toContain('Eleanor Vance')
   })
 
-  it('still verifies through a maiden name, where a surname is all that is shared', async () => {
+  it('leaves a married-name change to admin review, since only a first name is shared', async () => {
     const res = await lookup('TEST-CA-000006', 'Jennifer Okonkwo')
+    expect(res.status).toBe(422)
+    expect(writtenProfile().licenseVerified).toBe(false)
+    expect(writtenProfile().licenseNameMatch).toBe('mismatch')
+  })
+
+  it('verifies when the record carries the registered surname', async () => {
+    const res = await lookup('TEST-CA-000006', 'Jenny Barnes')
     expect(res.status).toBe(200)
     expect(writtenProfile().licenseNameMatch).toBe('match')
   })

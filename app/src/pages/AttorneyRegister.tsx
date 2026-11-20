@@ -271,6 +271,7 @@ export default function AttorneyRegister() {
       // the upload rewrites `licenseVerificationMethod` to 'manual_upload', and
       // running it second would leave a licence that a lookup actually verified
       // attributed to an unread document.
+      let licenseUnconfirmed = false
       if (verificationMethod === 'manual_upload' && (selectedFile || govIdFile)) {
         try {
           const formData = new FormData()
@@ -281,7 +282,7 @@ export default function AttorneyRegister() {
           if (form.stateBarState) formData.append('licenseState', form.stateBarState)
           await uploadAttorneyLicense(formData)
         } catch {
-          // Verify later from profile settings.
+          licenseUnconfirmed = true
         }
       }
 
@@ -294,6 +295,7 @@ export default function AttorneyRegister() {
         } catch {
           // A missing or mismatched licence is recorded server-side and shown on
           // the profile; it must not strand the attorney at signup.
+          licenseUnconfirmed = true
         }
       }
 
@@ -302,6 +304,13 @@ export default function AttorneyRegister() {
         title: 'Check your email',
         message: `We sent a verification link to ${form.email.trim()}. Check spam if it isn't there in a few minutes; you can resend it from My Profile.`,
       })
+      if (licenseUnconfirmed) {
+        showToast({
+          variant: 'info',
+          title: 'License not confirmed automatically',
+          message: 'Our team will review your license as part of approving your account. You can also update it from My Profile.',
+        })
+      }
       navigate('/attorney-dashboard')
     } catch (err: any) {
       const d = err.response?.data as { error?: string; details?: string | Record<string, unknown> } | undefined

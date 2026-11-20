@@ -7,17 +7,32 @@
  * message, and the attorney has no way to tell that it went wrong.
  *
  * The code is derived from the introduction id rather than stored, so there is
- * no column to keep in sync and nothing to allocate or expire. Only the leading
- * characters are used: matching is always scoped to one attorney's pending
- * offers, so the code has to separate a handful of rows rather than be globally
- * unique.
+ * no column to keep in sync and nothing to allocate or expire. Matching is
+ * always scoped to one attorney's pending offers, so the code has to separate a
+ * handful of rows rather than be globally unique. It takes the trailing
+ * characters: a cuid starts with its timestamp, so leading characters were
+ * shared by every offer created in the same ~47 seconds.
  */
 
 const CODE_LENGTH = 6
 
+function alphanumeric(introductionId: string): string {
+  return introductionId.replace(/[^a-zA-Z0-9]/g, '')
+}
+
 /** The code printed in the outbound offer message. */
 export function offerReferenceCode(introductionId: string): string {
-  return introductionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, CODE_LENGTH).toUpperCase()
+  return alphanumeric(introductionId).slice(-CODE_LENGTH).toUpperCase()
+}
+
+/** Codes sent before the switch to trailing characters. */
+export function legacyOfferReferenceCode(introductionId: string): string {
+  return alphanumeric(introductionId).slice(0, CODE_LENGTH).toUpperCase()
+}
+
+export function matchesOfferReference(introductionId: string, code: string): boolean {
+  const wanted = code.toUpperCase()
+  return offerReferenceCode(introductionId) === wanted || legacyOfferReferenceCode(introductionId) === wanted
 }
 
 /**
@@ -58,7 +73,8 @@ export function selectOfferForReply(
 
   if (quotedCode) {
     const wanted = quotedCode.toUpperCase()
-    const matches = pendingOffers.filter((offer) => offerReferenceCode(offer.id) === wanted)
+    const current = pendingOffers.filter((offer) => offerReferenceCode(offer.id) === wanted)
+    const matches = current.length > 0 ? current : pendingOffers.filter((offer) => matchesOfferReference(offer.id, wanted))
     if (matches.length === 1) return { ok: true, introductionId: matches[0].id }
     return { ok: false, reason: matches.length === 0 ? 'unknown_code' : 'ambiguous' }
   }

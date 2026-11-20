@@ -11,6 +11,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { ENV } from '../env'
 import { compareBarRecordName, earnsVerifiedBadge, type BarNameMatch } from '../lib/bar-license-identity'
 import { barLookupLimiter } from '../lib/rate-limits'
+import { notifyAdmins } from '../lib/platform-notifications'
+import { hasAttorneyAcceptedAgreement } from '../lib/attorney-agreement'
 import { isTestBarNumber, mockBarRecord } from '../lib/state-bar-mock'
 import { readLicenseDocument } from '../lib/license-document'
 import { extractTextFromBuffer } from '../lib/evidence-processing'
@@ -363,6 +365,19 @@ async function lookupStateBarLicenseRecord(
 }
 
 /**
+ * The name a bar record is checked against. The account name from signup,
+ * because the attorney display name is freely editable and comparing against
+ * it let anyone rename themselves to match a published bar number.
+ */
+async function registeredBarIdentity(attorney: { email: string | null; name: string }) {
+  const user = attorney.email
+    ? await prisma.user.findUnique({ where: { email: attorney.email }, select: { firstName: true, lastName: true } })
+    : null
+  const accountName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
+  return { name: accountName || attorney.name, surname: user?.lastName || null }
+}
+
+/**
  * OCR an uploaded licence, then check whatever bar number it carries.
  *
  * Returns null when the document yields nothing usable, which is the common
@@ -380,6 +395,7 @@ async function verifyFromLicenseDocument(input: {
   originalName: string
   typedState: string | null
   attorneyName: string
+  surname?: string | null
 }): Promise<{
   licenseNumber: string
   state: string
@@ -406,7 +422,9 @@ async function verifyFromLicenseDocument(input: {
     if (!state) return null
 
     const result = await lookupStateBarLicenseRecord(reading.barNumber, state, input.attorneyName)
-    const comparison = compareBarRecordName(result.found ? result.name : null, input.attorneyName)
+    const comparison = compareBarRecordName(result.found ? result.name : null, input.attorneyName, {
+      surname: input.surname,
+    })
 
     return {
       licenseNumber: reading.barNumber,
@@ -1400,12 +1418,14 @@ router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile
     // is the only path here that can verify anybody. Without this an attorney
     // who uploaded a valid bar card waited indefinitely on a review that does
     // not exist.
+    const identity = await registeredBarIdentity(attorney)
     const documentCheck = await verifyFromLicenseDocument({
       filePath: req.file.path,
       mimetype: req.file.mimetype,
       originalName: req.file.originalname,
       typedState: typeof licenseState === 'string' ? licenseState : null,
-      attorneyName: attorney.name,
+      attorneyName: identity.name,
+      surname: identity.surname,
     })
 
     // Update profile with license information
@@ -1539,7 +1559,7 @@ router.post('/license/state-bar-preview', barLookupLimiter, async (req: any, res
 })
 
 // State bar lookup through official public state bar sources where supported.
-router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) => {
+router.post('/license/state-bar-lookup', barLookupLimiter, authMiddleware, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
       return res.status(401).json({ 
@@ -1569,14 +1589,16 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
 
     const attorneyId = attorney.id
 
-    const verificationResult = await lookupStateBarLicenseRecord(String(licenseNumber), String(state), attorney.name)
+    const identity = await registeredBarIdentity(attorney)
+    const verificationResult = await lookupStateBarLicenseRecord(String(licenseNumber), String(state), identity.name)
     // An active licence is necessary but not sufficient: every California bar
     // number is published, so without this the badge certifies only that the
     // attorney can copy one. As above, the record's name is only evidence when
     // the record was actually found.
     const comparison = compareBarRecordName(
       verificationResult.found ? verificationResult.name : null,
-      attorney.name,
+      identity.name,
+      { surname: identity.surname },
     )
     const verified = earnsVerifiedBadge(verificationResult.found, comparison.match)
 
@@ -1605,14 +1627,21 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
     }
 
     // Store lookup data even when the result is not verified, but fail closed.
+    // An admin's verification stands: a mistyped re-check must not undo it.
+    const keepAdminVerification =
+      !verified && !!profile.licenseVerified && profile.licenseVerificationMethod === 'admin_review'
     const updatedProfile = await prisma.attorneyProfile.update({
       where: { attorneyId },
       data: {
         licenseNumber: verificationResult.licenseNumber,
         licenseState: verificationResult.state,
-        licenseVerified: verified,
-        licenseVerifiedAt: verified ? new Date() : null,
-        licenseVerificationMethod: 'state_bar_lookup',
+        ...(keepAdminVerification
+          ? {}
+          : {
+              licenseVerified: verified,
+              licenseVerifiedAt: verified ? new Date() : null,
+              licenseVerificationMethod: 'state_bar_lookup',
+            }),
         licenseStatus: verificationResult.status ?? null,
         licenseRecordName: comparison.recordName,
         licenseNameMatch: comparison.match,
@@ -1638,6 +1667,15 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
       const error = verificationResult.found
         ? `The State Bar lists license ${verificationResult.licenseNumber} under ${comparison.recordName || 'a different name'}, which does not match the name on your account. We have sent this to our team to review — you do not need to do anything else.`
         : verificationResult.message
+      if (verificationResult.found && !keepAdminVerification) {
+        void notifyAdmins({
+          subject: 'Attorney license needs review: name mismatch',
+          message:
+            `${attorney.name} (${attorney.email}) looked up ${verificationResult.state} bar #${verificationResult.licenseNumber}, ` +
+            `which the State Bar lists under ${comparison.recordName || 'a different name'}. Review in Admin → Attorneys.`,
+          metadata: { eventType: 'attorney.license_name_mismatch', attorneyId },
+        }).catch(() => undefined)
+      }
 
       return res.status(422).json({
         success: false,
@@ -1726,6 +1764,61 @@ router.get('/license/file', authMiddleware, async (req: any, res) => {
 })
 
 // Get license status
+/**
+ * What still stands between this attorney and their first routed case. Each
+ * item mirrors a hard filter in routing (`checkAttorneyEligibility` and the
+ * quality gate), so the checklist and the router cannot disagree.
+ */
+router.get('/readiness', authMiddleware, async (req: any, res) => {
+  try {
+    res.set('Cache-Control', 'no-store')
+    if (!req.user?.email) return res.status(401).json({ error: 'Authentication required' })
+
+    const attorney = await prisma.attorney.findUnique({
+      where: { email: req.user.email },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+        isVerified: true,
+        specialties: true,
+        responseTimeHours: true,
+        createdAt: true,
+        attorneyProfile: { select: { jurisdictions: true, licenseVerified: true } },
+      },
+    })
+    if (!attorney) return res.status(404).json({ error: 'Attorney profile not found' })
+
+    const parseList = (raw: string | null | undefined) => {
+      try {
+        const parsed = JSON.parse(raw || '[]')
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
+    const items = [
+      { id: 'approval', done: !!attorney.isVerified },
+      { id: 'agreement', done: await hasAttorneyAcceptedAgreement(attorney.email) },
+      { id: 'states', done: parseList(attorney.attorneyProfile?.jurisdictions).length > 0 },
+      { id: 'caseTypes', done: parseList(attorney.specialties).length > 0 },
+      { id: 'responseTime', done: (attorney.responseTimeHours ?? 24) <= 48 },
+      { id: 'active', done: !!attorney.isActive },
+    ]
+
+    res.json({
+      ready: items.every((item) => item.done),
+      items,
+      submittedAt: attorney.createdAt,
+      licenseVerified: !!attorney.attorneyProfile?.licenseVerified,
+      responseTimeHours: attorney.responseTimeHours ?? null,
+    })
+  } catch (error: any) {
+    logger.error('Failed to build attorney readiness', { error: error?.message })
+    res.status(500).json({ error: 'Failed to load readiness' })
+  }
+})
+
 router.get('/license/status', authMiddleware, async (req: any, res) => {
   try {
     res.set('Cache-Control', 'no-store')

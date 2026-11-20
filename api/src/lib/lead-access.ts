@@ -14,12 +14,13 @@
 
 /**
  * Introduction statuses that mean the offer is no longer this attorney's to act
- * on: the response window lapsed (EXPIRED) or they declined (DECLINED). A lead
- * whose only introductions for an attorney are terminal must not surface in that
+ * on: the response window lapsed (EXPIRED), they declined (DECLINED), or they
+ * handed an accepted case to a colleague (TRANSFERRED). A lead whose only
+ * introductions for an attorney are terminal must not surface in that
  * attorney's caseload — otherwise a lead that expires and re-routes to the next
  * attorney keeps lingering in the first attorney's cases and New Matches.
  */
-export const TERMINAL_INTRO_STATUSES = ['EXPIRED', 'DECLINED'] as const
+export const TERMINAL_INTRO_STATUSES = ['EXPIRED', 'DECLINED', 'TRANSFERRED'] as const
 
 /**
  * The Attorney id for the caller.

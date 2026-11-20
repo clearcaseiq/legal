@@ -110,6 +110,23 @@
     "associatedWith": "Associated with",
     "comingSoon": "Coming soon",
     "soon": "Soon",
+    "readiness": {
+      "title": "You're not receiving cases yet",
+      "intro": "Cases are only routed to you once every item below is checked.",
+      "onlyApproval": "Your profile is complete. Cases start arriving as soon as our team approves your account, usually within one business day.",
+      "done": "Done: ",
+      "todo": "To do: ",
+      "fix": "Fix",
+      "items": {
+        "approval": "Account approved by ClearCaseIQ",
+        "approvalPending": "Account approval: in review since {{date}}",
+        "agreement": "Attorney Participation Agreement accepted",
+        "states": "At least one state you serve",
+        "caseTypes": "At least one case type",
+        "responseTime": "Response time of 48 hours or less",
+        "active": "Account active"
+      }
+    },
     "notifications": {
       "label": "Notifications",
       "description": "Matches, deadlines & activity"
@@ -302,7 +319,7 @@
       "summary": "Follow one of your cases from opening through evidence, demand and negotiation to settlement, section by section.",
       "tabs": {
         "title": "The case file",
-        "body": "Each case has these tabs, roughly in the order a case moves: overview, tasks, documents, medical, the claim, resolution and billing."
+        "body": "Each case has these tabs, roughly in the order a case moves: overview, tasks, documents, the claim (including medical), resolution and billing."
       },
       "overview": {
         "title": "1. Overview",

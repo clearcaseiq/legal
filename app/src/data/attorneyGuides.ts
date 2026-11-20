@@ -212,7 +212,7 @@ export const attorneyGuides: AttorneyGuide[] = [
     slug: 'case-workspace',
     title: 'The case workspace',
     summary:
-      'Find your way around an accepted case: the case header, the eight tabs and their subtabs, and what firm staff see when their role is view-only.',
+      'Find your way around an accepted case: the case header, the six tabs and their subtabs, and what firm staff see when their role is view-only.',
     readMinutes: 5,
     updated: UPDATED,
     sections: [
@@ -235,25 +235,21 @@ export const attorneyGuides: AttorneyGuide[] = [
       {
         heading: 'Overview and Tasks',
         steps: [
-          'Overview → Summary: the AI case summary, valuation and readiness at a glance.',
+          'Overview → Summary: the AI case summary, valuation, readiness and case health at a glance.',
           'Overview → Client info: the client\u2019s contact details and mailing address.',
+          'Overview → Notes & calls: private team notes and a log of every call, email, text and meeting with the client.',
           'Overview → Activity: a chronological record of everything on the matter.',
           'Tasks → Queue: the main work queue for the case, with recommended next steps, assignments and open items.',
           'Tasks → Workflow: your firm\u2019s standard pipeline for the case. Check off steps, assign owners and track progress stage by stage.',
+          'Tasks → Ask Copilot: ask case-specific questions and get answers with citations, plus workup readiness for the matter.',
+          'Tasks → Rose: Rose reviews the case, raises next tasks and shows the AI Case Coach feed.',
         ],
       },
       {
-        heading: 'AI, Documents and Medical',
+        heading: 'Documents, Claim and Resolution',
         steps: [
-          'AI → Ask Copilot: ask case-specific questions and get answers with citations, plus workup readiness for the matter.',
-          'AI → Rose: Rose reviews the case, raises next tasks and shows the AI Case Coach feed.',
           'Documents: every file on the case, what the client still owes you, e-signatures, and your retainer and HIPAA templates.',
-          'Medical: providers, the treatment chronology and cost benchmarks.',
-        ],
-      },
-      {
-        heading: 'Claim and Resolution',
-        steps: [
+          'Claim → Medical: providers, the treatment chronology and cost benchmarks.',
           'Claim → Liability: fault theory, comparative negligence and liability evidence.',
           'Claim → Insurance: carriers, policy limits, adjusters and claims.',
           'Claim → Damages: itemized economic damages such as medical costs, wage loss and future costs.',
@@ -624,7 +620,7 @@ export const attorneyGuides: AttorneyGuide[] = [
       {
         heading: 'Settlement statuses',
         body:
-          'A settlement starts as Draft. Click "Finalize settlement" once the agreed amount is entered; it then shows "Finalized \u2014 funds pending". When the money has gone out, click "Mark disbursed" and it shows Disbursed with the date and who marked it. While finalized, you can Reopen it to make changes.',
+          'A settlement starts as Draft. Click "Finalize settlement" once the agreed amount is entered and the client has approved it, either by accepting a matching offer you shared from Negotiation or, if they approved it another way, by noting how; it then shows "Finalized \u2014 funds pending". When the money has gone out, click "Mark disbursed" and it shows Disbursed with the date and who marked it. While finalized, you can Reopen it to make changes.',
       },
     ],
   },

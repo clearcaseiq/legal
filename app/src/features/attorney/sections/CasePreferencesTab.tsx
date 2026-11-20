@@ -280,7 +280,10 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
 
         <div className="mt-5">
           <label className={LABEL}>Intake Hours</label>
-          <p className="mb-2 text-xs text-slate-500">When new cases can be routed to you.</p>
+          <p className="mb-2 text-xs text-slate-500">
+            When your office takes intake calls, shown to clients. New matches can still arrive outside these hours; the
+            response window starts when they do.
+          </p>
           <div className="mb-3 flex gap-6">
             <label className="flex cursor-pointer items-center space-x-2">
               <input
@@ -347,9 +350,7 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
                 )
               })}
               {intakeWindows.length === 0 && (
-                <p className="text-xs text-amber-700">
-                  Pick at least one day, or cases will never look routable to you.
-                </p>
+                <p className="text-xs text-amber-700">Pick at least one day so clients know when to reach you.</p>
               )}
             </div>
           )}
@@ -363,7 +364,10 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
           </span>
           <div>
             <h3 className={HEADING}>Response Commitment</h3>
-            <p className="mt-0.5 text-sm text-slate-500">This drives the badge plaintiffs see on your profile.</p>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Shown as a badge on your profile, and used in routing: above 24 hours you stop receiving high-priority cases,
+              and above 48 hours you stop receiving cases at all.
+            </p>
           </div>
         </div>
 
@@ -377,7 +381,17 @@ export default function CasePreferencesTab({ profile, saving, onSave }: Props) {
               value={draft.responseTimeHours}
               onChange={(e) => patch({ responseTimeHours: Math.max(1, Number(e.target.value) || 24) })}
               className={INPUT}
+              aria-describedby={draft.responseTimeHours > 24 ? 'response-time-routing-note' : undefined}
             />
+            {draft.responseTimeHours > 48 ? (
+              <p id="response-time-routing-note" role="alert" className="mt-1 text-xs font-medium text-red-700">
+                At more than 48 hours, no new cases will be routed to you.
+              </p>
+            ) : draft.responseTimeHours > 24 ? (
+              <p id="response-time-routing-note" className="mt-1 text-xs text-amber-700">
+                At more than 24 hours, you will not receive high-priority cases.
+              </p>
+            ) : null}
           </div>
           <div>
             <label className={LABEL}>Public Badge Preview</label>

@@ -160,9 +160,17 @@ import {
   claimCaseForAttorney,
   recordRoutingEvent,
   retireCompetingOffers,
-  syncDecisionMemoryForAssessment
+  syncDecisionMemoryForAssessment,
+  advanceRoutingAfterDecline
 } from '../lib/routing-lifecycle'
-import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp, sendPlaintiffCaseClosed } from '../lib/case-notifications'
+import { hasSettledRoutingFee, isRoutingFeeDue, refundRoutingFee } from '../lib/routing-fee'
+import { moveCaseChatToAttorney } from '../lib/case-chat-transfer'
+import {
+  sendPlaintiffAttorneyAccepted,
+  notifyPlaintiffInApp,
+  sendPlaintiffCaseClosed,
+  isCaseCloseReason,
+} from '../lib/case-notifications'
 import {
   loadProofFiles,
   notifyPlaintiffOfNegotiationDecision,
@@ -785,9 +793,17 @@ async function firmGrantsLeadRead(
   lead: { id: string; assessmentId: string },
   attorneyId: string | null,
   firm: FirmVisibility,
+  options: { caseInHand?: boolean } = {},
 ): Promise<boolean> {
   if (firm.lawFirmId && firm.canViewAllCases && (await firmHoldsLead(lead, firm.lawFirmId))) return true
-  if (firm.lawFirmId && firm.canReviewFirmMatches && (await firmHasLiveOffer(lead, firm.lawFirmId))) return true
+  if (
+    !options.caseInHand &&
+    firm.lawFirmId &&
+    firm.canReviewFirmMatches &&
+    (await firmHasLiveOffer(lead, firm.lawFirmId))
+  ) {
+    return true
+  }
   if (await onFirmCaseTeam(lead, attorneyId, firm)) return true
   if (firm.lawFirmId && (await holdsOpenTaskOnLead(lead, firm.userId)) && (await firmHoldsLead(lead, firm.lawFirmId))) {
     return true
@@ -919,7 +935,7 @@ async function getAppointmentAttorney(req: any, appointmentId: string): Promise<
 async function getFirmMemberLeadAccess(
   req: any,
   lead: { id: string; assessmentId: string },
-  options: { activeOnly?: boolean } = {}
+  options: { activeOnly?: boolean; caseInHand?: boolean } = {}
 ) {
   const userId = req.user?.id
   if (!userId) return null
@@ -948,7 +964,7 @@ async function getFirmMemberLeadAccess(
   // exists: firm-wide visibility listed the lead for them under New Leads and
   // opening it then answered 403. Fall back to the same firm claim the list is
   // built from, so the two agree.
-  return (await firmGrantsLeadRead(lead, null, firm)) ? member : null
+  return (await firmGrantsLeadRead(lead, null, firm, { caseInHand: options.caseInHand })) ? member : null
 }
 
 /**
@@ -996,6 +1012,9 @@ export async function getAuthorizedLead(
     firmMemberWrite?: boolean
     staffCan?: CaseActionGroup | 'any'
     allowMarketplaceRead?: boolean
+    // Reads of identified client data: a pending offer is de-identified until
+    // the attorney accepts, so it grants nothing here.
+    caseInHand?: boolean
   } = {}
 ) {
   if (options.staffCan) {
@@ -1027,7 +1046,10 @@ export async function getAuthorizedLead(
       if (!lead) {
         return { error: { status: 404, message: 'Lead not found' } }
       }
-      const firmMember = await getFirmMemberLeadAccess(req, lead, { activeOnly: options.firmMemberWrite })
+      const firmMember = await getFirmMemberLeadAccess(req, lead, {
+        activeOnly: options.firmMemberWrite,
+        caseInHand: options.caseInHand,
+      })
       if (firmMember) {
         const group = options.staffCan
         if (group && group !== 'any') {
@@ -1075,7 +1097,7 @@ export async function getAuthorizedLead(
     where: {
       assessmentId: lead.assessmentId,
       attorneyId: attorney.id,
-      status: isWrite ? 'ACCEPTED' : { in: ['PENDING', 'ACCEPTED'] },
+      status: isWrite || options.caseInHand ? 'ACCEPTED' : { in: ['PENDING', 'ACCEPTED'] },
     }
   })
   const ethicalWall = await prisma.ethicalWall.findFirst({
@@ -1131,11 +1153,13 @@ export async function getAuthorizedLead(
   // A real relationship (assigned, introduced, same firm, accepted share) still
   // grants access regardless, since that attorney has already engaged the case.
   const sharedAccess =
-    !isWrite && options.allowMarketplaceRead === true && isShared && attorney.isVerified
+    !isWrite && !options.caseInHand && options.allowMarketplaceRead === true && isShared && attorney.isVerified
 
   const firmGrant =
     !isWrite && !sharedAccess && !isAssigned && !currentIntro && !sameFirm && !acceptedShare
-      ? await firmGrantsLeadRead(lead, attorney.id, await resolveFirmVisibility(req, attorney))
+      ? await firmGrantsLeadRead(lead, attorney.id, await resolveFirmVisibility(req, attorney), {
+          caseInHand: options.caseInHand,
+        })
       : false
   const shareAccess = isWrite ? writableShare : !!acceptedShare
 
@@ -1149,6 +1173,16 @@ export async function getAuthorizedLead(
   }
 
   return { attorney, lead }
+}
+
+const LEAD_STATUS_ORDER = ['submitted', 'contacted', 'consulted', 'retained']
+
+/** Move a lead forward through the engagement statuses, never backward. */
+export function advanceLeadStatus(current: string | null | undefined, next: string): string {
+  const from = LEAD_STATUS_ORDER.indexOf(String(current || ''))
+  const to = LEAD_STATUS_ORDER.indexOf(next)
+  if (from === -1 && current) return current
+  return to > from ? next : String(current || next)
 }
 
 /**
@@ -2479,11 +2513,35 @@ function sanitizeAssessmentForAttorney(assessment: any) {
   }
 }
 
+/**
+ * The filing deadline from the state rules. Computed from the full facts,
+ * before de-identification removes the date of birth minor tolling needs.
+ */
+function leadStatuteSummary(assessment: any) {
+  if (!assessment?.facts) return null
+  const facts = typeof assessment.facts === 'string' ? safeJsonParse<any>(assessment.facts, {}) : assessment.facts
+  const sol = deriveSOLStatusFromFacts({
+    facts: facts || {},
+    claimType: assessment.claimType || '',
+    venueState: assessment.venueState,
+    venueCounty: assessment.venueCounty,
+  })
+  if (sol.status === 'unknown' || !sol.expiresAt) return { status: 'unknown' as const }
+  return {
+    status: sol.status,
+    expiresAt: sol.expiresAt.toISOString(),
+    daysRemaining: sol.daysRemaining ?? null,
+    years: sol.rule?.years ?? null,
+    appliedDateType: sol.appliedDateType ?? 'incident',
+  }
+}
+
 function sanitizeLeadForAttorney(lead: any) {
   if (!lead?.assessment) return lead
   const assessment = sanitizeAssessmentForAttorney(lead.assessment)
   return {
     ...lead,
+    statuteOfLimitations: leadStatuteSummary(lead.assessment),
     assessment: CONTACT_REVEALED_STATUSES.has(lead.status) ? assessment : deidentifyAssessmentForOffer(assessment),
   }
 }
@@ -6907,15 +6965,11 @@ router.post('/leads/:leadId/contact', authMiddleware, firmGate('message'), async
       return res.status(401).json({ error: 'Authentication required' })
     }
 
-    const attorney = await prisma.attorney.findFirst({
-      where: { email: req.user.email },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-    })
-
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const attorney = auth.attorney
     if (!attorney) {
       return res.status(403).json({ error: 'Attorney profile not found' })
     }
@@ -6933,12 +6987,11 @@ router.post('/leads/:leadId/contact', authMiddleware, firmGate('message'), async
       }
     })
 
-    // Update lead last contact time and status
     await prisma.leadSubmission.update({
       where: { id: leadId },
       data: {
         lastContactAt: new Date(),
-        status: contactType === 'consult' ? 'consulted' : 'contacted'
+        status: advanceLeadStatus(auth.lead.status, contactType === 'consult' ? 'consulted' : 'contacted')
       }
     })
 
@@ -7151,7 +7204,7 @@ router.post('/leads/:leadId/document-request', authMiddleware, firmGate('request
 // copy in `Assessment.facts`, which froze at submission. Both copies move here.
 router.get('/leads/:leadId/client-contact', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, caseInHand: true })
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
 
     const contact = await readClaimantContact(auth.lead.assessmentId)
@@ -8057,26 +8110,15 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, firmGate('schedul
 router.get('/leads/:leadId/contacts', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    if (!req.user?.email) {
-      return res.status(401).json({ error: 'Authentication required' })
+    // The log belongs to the case, so anyone working it (including after a
+    // transfer) sees every entry, and nobody else sees any.
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, caseInHand: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
     }
-
-    const attorney = await prisma.attorney.findFirst({
-      where: { email: req.user.email },
-      select: { id: true },
-    })
-
-    if (!attorney) {
-      return res.status(403).json({ error: 'Attorney profile not found' })
-    }
-
-    const attorneyId = attorney.id
 
     const contacts = await prisma.leadContact.findMany({
-      where: {
-        leadId,
-        attorneyId
-      },
+      where: { leadId },
       select: {
         id: true,
         leadId: true,
@@ -8433,6 +8475,18 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead, attorney } = auth
+
+    // An attorney still deciding on an offer sees which kinds of evidence exist
+    // (the pre-acceptance checklist) and nothing that could identify the client.
+    const caseInHand = !(await getAuthorizedLead(req, leadId, { allowFirmMember: true, caseInHand: true })).error
+    if (!caseInHand) {
+      const categories = await prisma.evidenceFile.findMany({
+        where: { assessmentId: lead.assessmentId },
+        select: { id: true, category: true, subcategory: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      return res.json({ files: categories, medicalSharing: null })
+    }
 
     await syncHipaaConsentFromSignedEnvelope(leadId, lead.assessmentId).catch((error: any) =>
       logger.warn('Failed to sync HIPAA consent from signed authorization', { error: error?.message, leadId }),
@@ -9979,7 +10033,7 @@ router.post('/intake/smart-config', authMiddleware, async (req: any, res) => {
 router.get('/leads/:leadId/case-file', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { caseInHand: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -10839,7 +10893,7 @@ router.patch('/leads/:leadId/co-counsel/:workflowId', authMiddleware, async (req
 router.get('/leads/:leadId/finance/dataroom', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { caseInHand: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -12560,11 +12614,33 @@ router.post('/leads/:leadId/settlement/status', authMiddleware, firmGate('manage
       select: { status: true, grossAmount: true },
     })
 
-    if (target === 'finalized') {
-      // Need a gross recovery to finalize against (override or predicted median).
-      const settlement = await computeSettlement(lead.assessmentId)
-      if (!(settlement.gross > 0)) {
-        return res.status(400).json({ error: 'Add the agreed settlement amount before finalizing.' })
+    let clientApproval: { via: 'portal'; negotiationEventId: string } | { via: 'attorney_note'; note: string } | null = null
+    if (target === 'finalized' && current?.status !== 'disbursed') {
+      // The predicted median is an estimate; a settlement is only final against
+      // the amount actually agreed, and only once the client has said yes to it.
+      const agreed = Number(current?.grossAmount)
+      if (!(agreed > 0)) {
+        return res.status(409).json({
+          code: 'AGREED_AMOUNT_REQUIRED',
+          error: 'Enter the agreed settlement amount before finalizing. The estimate cannot be finalized.',
+        })
+      }
+      const accepted = await prisma.negotiationEvent.findFirst({
+        where: { assessmentId: lead.assessmentId, clientDecision: 'accepted', amount: { gte: agreed - 1, lte: agreed + 1 } },
+        orderBy: { clientDecidedAt: 'desc' },
+        select: { id: true },
+      })
+      const note = String(req.body?.clientApprovalNote ?? '').trim().slice(0, 1000)
+      if (accepted) {
+        clientApproval = { via: 'portal', negotiationEventId: accepted.id }
+      } else if (note.length >= 10) {
+        clientApproval = { via: 'attorney_note', note }
+      } else {
+        return res.status(409).json({
+          code: 'CLIENT_ACCEPTANCE_REQUIRED',
+          error:
+            'The client has not accepted this amount in their portal. Share the offer with them from Negotiation, or record how they approved it.',
+        })
       }
     }
     if (target === 'disbursed' && current?.status !== 'finalized' && current?.status !== 'disbursed') {
@@ -12599,7 +12675,7 @@ router.post('/leads/:leadId/settlement/status', authMiddleware, firmGate('manage
       action: `settlement_${target}`,
       entityType: 'settlement',
       entityId: lead.assessmentId,
-      metadata: { leadId: lead.id },
+      metadata: { leadId: lead.id, ...(clientApproval ? { clientApproval } : {}) },
     })
 
     void recordCaseChange({
@@ -12612,7 +12688,9 @@ router.post('/leads/:leadId/settlement/status', authMiddleware, firmGate('manage
         target === 'disbursed'
           ? 'Settlement funds disbursed to client'
           : target === 'finalized'
-            ? 'Settlement finalized (agreement reached)'
+            ? clientApproval?.via === 'attorney_note'
+              ? `Settlement finalized; client approval recorded by attorney: ${clientApproval.note}`
+              : 'Settlement finalized; client accepted the amount in their portal'
             : 'Settlement reopened',
       actor: { type: 'user', id: req.user?.id ?? null, label: actorName },
     })
@@ -16784,7 +16862,8 @@ router.delete('/leads/:leadId/notes/:id', authMiddleware, async (req: any, res) 
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.caseNote.delete({ where: { id } })
+    const removed = await prisma.caseNote.deleteMany({ where: { id, assessmentId: auth.lead.assessmentId } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Note not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete case note', { error: error.message })
@@ -17202,7 +17281,8 @@ router.delete('/leads/:leadId/invoices/:id', authMiddleware, async (req: any, re
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.billingInvoice.delete({ where: { id } })
+    const removed = await prisma.billingInvoice.deleteMany({ where: { id, assessmentId: auth.lead.assessmentId } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete invoice', { error: error.message })
@@ -17310,7 +17390,8 @@ router.delete('/leads/:leadId/payments/:id', authMiddleware, async (req: any, re
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.billingPayment.delete({ where: { id } })
+    const removed = await prisma.billingPayment.deleteMany({ where: { id, assessmentId: auth.lead.assessmentId } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Payment not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete payment', { error: error.message })
@@ -17322,13 +17403,13 @@ router.delete('/leads/:leadId/payments/:id', authMiddleware, async (req: any, re
 router.get('/leads/:leadId/health', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead, attorney } = auth
 
-    const computed = await computeCaseHealth(leadId, lead.assessmentId, attorney.id)
+    const computed = await computeCaseHealth(leadId, lead.assessmentId, lead.assignedAttorneyId || attorney?.id)
     const latestSnapshot = await prisma.caseHealthSnapshot.findFirst({
       where: { assessmentId: lead.assessmentId },
       orderBy: { createdAt: 'desc' }
@@ -17348,13 +17429,13 @@ router.get('/leads/:leadId/health', authMiddleware, async (req: any, res) => {
 router.post('/leads/:leadId/health', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { staffCan: 'manage' })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead, attorney } = auth
 
-    const computed = await computeCaseHealth(leadId, lead.assessmentId, attorney.id)
+    const computed = await computeCaseHealth(leadId, lead.assessmentId, lead.assignedAttorneyId || attorney?.id)
     const snapshot = await prisma.caseHealthSnapshot.create({
       data: {
         assessmentId: lead.assessmentId,
@@ -17464,7 +17545,8 @@ router.delete('/templates/reminders/:id', authMiddleware, async (req: any, res) 
     if (!attorney) {
       return res.status(403).json({ error: 'Attorney profile not found' })
     }
-    await prisma.reminderTemplate.delete({ where: { id } })
+    const removed = await prisma.reminderTemplate.deleteMany({ where: { id, attorneyId: attorney.id } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete reminder template', { error: error.message })
@@ -17600,7 +17682,8 @@ router.delete('/leads/:leadId/reminders/:id', authMiddleware, async (req: any, r
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.caseReminder.delete({ where: { id } })
+    const removed = await prisma.caseReminder.deleteMany({ where: { id, assessmentId: auth.lead.assessmentId } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete case reminder', { error: error.message })
@@ -17721,7 +17804,8 @@ router.delete('/health-rules/:id', authMiddleware, async (req: any, res) => {
     if (!attorney) {
       return res.status(403).json({ error: 'Attorney profile not found' })
     }
-    await prisma.healthEscalationRule.delete({ where: { id } })
+    const removed = await prisma.healthEscalationRule.deleteMany({ where: { id, attorneyId: attorney.id } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete health rule', { error: error.message })
@@ -17798,7 +17882,8 @@ router.delete('/templates/negotiation-cadence/:id', authMiddleware, async (req: 
     if (!attorney) {
       return res.status(403).json({ error: 'Attorney profile not found' })
     }
-    await prisma.negotiationCadenceTemplate.delete({ where: { id } })
+    const removed = await prisma.negotiationCadenceTemplate.deleteMany({ where: { id, attorneyId: attorney.id } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete negotiation cadence template', { error: error.message })
@@ -17873,7 +17958,8 @@ router.delete('/templates/task-sla/:id', authMiddleware, async (req: any, res) =
     if (!attorney) {
       return res.status(403).json({ error: 'Attorney profile not found' })
     }
-    await prisma.taskSlaTemplate.delete({ where: { id } })
+    const removed = await prisma.taskSlaTemplate.deleteMany({ where: { id, attorneyId: attorney.id } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete task SLA template', { error: error.message })
@@ -17948,7 +18034,10 @@ router.post('/templates/workflows', authMiddleware, async (req: any, res) => {
 router.delete('/templates/workflows/:id', authMiddleware, async (req: any, res) => {
   try {
     const { id } = req.params
-    await prisma.caseWorkflowTemplate.delete({ where: { id } })
+    const attorney = req.user?.email ? await prisma.attorney.findFirst({ where: { email: req.user.email }, select: { id: true } }) : null
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+    const removed = await prisma.caseWorkflowTemplate.deleteMany({ where: { id, attorneyId: attorney.id } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete workflow template', { error: error.message })
@@ -18091,7 +18180,8 @@ router.delete('/leads/:leadId/recurring-invoices/:id', authMiddleware, async (re
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    await prisma.recurringInvoice.delete({ where: { id } })
+    const removed = await prisma.recurringInvoice.deleteMany({ where: { id, assessmentId: auth.lead.assessmentId } })
+    if (removed.count === 0) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete recurring invoice', { error: error.message })
@@ -18791,6 +18881,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
             description: caseFee.description,
           }
         : null,
+      statuteOfLimitations: leadStatuteSummary(assessment),
       assessment: assessment
         ? assessmentView({
             id: assessment.id,
@@ -20117,6 +20208,11 @@ router.post('/leads/:leadId/close', authMiddleware, firmGate('manage'), async (r
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead } = auth
+    const rawReason = req.body?.reason
+    if (rawReason != null && !isCaseCloseReason(rawReason)) {
+      return res.status(400).json({ error: 'Invalid close reason' })
+    }
+    const reason = rawReason ?? null
     await prisma.assessment.update({
       where: { id: lead.assessmentId },
       data: { status: 'closed', closedAt: new Date() },
@@ -20126,13 +20222,16 @@ router.post('/leads/:leadId/close', authMiddleware, firmGate('manage'), async (r
       source: 'attorney',
       action: 'case_closed',
       entityType: 'case',
-      summary: 'Case closed',
+      summary: reason ? `Case closed (${reason.replace(/_/g, ' ')})` : 'Case closed',
       actor: { type: 'user', id: req.user?.id ?? null, label: requestActorName(req.user) },
     })
     const stage = await syncCaseStage(lead.assessmentId, { source: 'attorney', force: true })
-    // Let the client know their case is settled and closed — bell, email, and a
-    // note in their attorney message thread. Best-effort; never block the close.
-    void sendPlaintiffCaseClosed(lead.assessmentId, { attorneyId: lead.assignedAttorneyId ?? auth.attorney?.id ?? null })
+    // The client hears "settled" only when the attorney said so. Best-effort;
+    // never block the close.
+    void sendPlaintiffCaseClosed(lead.assessmentId, {
+      attorneyId: lead.assignedAttorneyId ?? auth.attorney?.id ?? null,
+      reason,
+    })
     res.json({ ok: true, caseStage: stage })
   } catch (error: any) {
     logger.error('Failed to close case', { error: error.message, leadId: req.params.leadId })
@@ -20363,6 +20462,18 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       return res.status(403).json({ error: 'Not authorized to update this lead' })
     }
 
+    // The attorney may already have paid for this case on Stripe. When the case
+    // turns out to be gone, the fee goes back before we answer.
+    const refuseUnavailableCase = async (body: Record<string, unknown>) => {
+      const { refunded } =
+        decision === 'accept'
+          ? await refundRoutingFee(attorneyId, leadId, String(body.code || 'case_unavailable')).catch(() => ({
+              refunded: false,
+            }))
+          : { refunded: false }
+      return res.status(409).json({ ...body, ...(refunded ? { routingFeeRefunded: true } : {}) })
+    }
+
     // Prevent accepting a case that another attorney has already claimed. routingLocked
     // is only set on accept, so a lock held by a different attorney means the case is
     // gone — block it even if the client's response window looked open.
@@ -20371,7 +20482,10 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       !!existingLead.assignedAttorneyId &&
       existingLead.assignedAttorneyId !== attorneyId
     if (decision === 'accept' && claimedByOther) {
-      return res.status(409).json({ error: 'This case has already been assigned to another attorney.' })
+      return refuseUnavailableCase({
+        error: 'This case has already been assigned to another attorney.',
+        code: 'CASE_ALREADY_CLAIMED',
+      })
     }
 
     // Checked on the attorney who takes the case, not whoever clicked: firm
@@ -20422,8 +20536,9 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         offerLapsed = intro.requestedAt.getTime() + deadlineMinutes * 60 * 1000 <= Date.now()
       }
       if (offerLapsed) {
-        return res.status(409).json({
+        return refuseUnavailableCase({
           error: 'The response window for this match has expired and it has been released to another attorney.',
+          code: 'WINDOW_EXPIRED',
         })
       }
     }
@@ -20440,11 +20555,23 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
     if (intro && intro.status !== 'PENDING') {
       const already =
         intro.status === 'ACCEPTED' ? 'accepted' : intro.status === 'DECLINED' ? 'declined' : null
-      return res.status(409).json({
+      const body = {
         error: already
           ? `You have already ${already} this case.`
           : 'This match is no longer available to respond to.',
         code: 'ALREADY_RESPONDED',
+      }
+      return intro.status === 'ACCEPTED' ? res.status(409).json(body) : refuseUnavailableCase(body)
+    }
+
+    if (
+      decision === 'accept' &&
+      (await isRoutingFeeDue(existingLead)) &&
+      !(await hasSettledRoutingFee(attorneyId, leadId))
+    ) {
+      return res.status(402).json({
+        error: 'Pay the routing fee to accept this case.',
+        code: 'ROUTING_FEE_REQUIRED',
       })
     }
 
@@ -20512,20 +20639,20 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
           }
         }
 
+        // A decline answers this attorney's offer only. The case stays
+        // `submitted` so other attorneys holding offers in the same wave keep
+        // seeing it and their offers keep their own expiry.
+        if (existingLead.assignedAttorneyId !== attorneyId || existingLead.routingLocked) {
+          return existingLead
+        }
         return tx.leadSubmission.update({
           where: { id: leadId },
-          data: {
-            status: 'rejected',
-            assignedAttorneyId: null,
-            assignmentType: existingLead.assignmentType,
-            lifecycleState: 'routing_active',
-            routingLocked: false,
-          }
+          data: { assignedAttorneyId: null }
         })
       })
     } catch (err: unknown) {
       if ((err as Error)?.message === ROUTING_CASE_ALREADY_CLAIMED) {
-        return res.status(409).json({
+        return refuseUnavailableCase({
           error: 'This case has already been assigned to another attorney.',
           code: 'CASE_ALREADY_CLAIMED',
         })
@@ -20540,12 +20667,13 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       })
       const already =
         current?.status === 'ACCEPTED' ? 'accepted' : current?.status === 'DECLINED' ? 'declined' : null
-      return res.status(409).json({
+      const body = {
         error: already
           ? `You have already ${already} this case.`
           : 'This match is no longer available to respond to.',
         code: 'ALREADY_RESPONDED',
-      })
+      }
+      return current?.status === 'ACCEPTED' ? res.status(409).json(body) : refuseUnavailableCase(body)
     }
 
     if (decision === 'accept' && decisionIntroId) {
@@ -20568,6 +20696,12 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'declined', {
           declineReason: declineReason || notes || null,
           ...(closedColleagueOffers ? { firmDecline: true, closedColleagueOffers } : {}),
+        })
+        await advanceRoutingAfterDecline(existingLead.assessmentId, attorneyId).catch((err: unknown) => {
+          logger.warn('Failed to advance routing after dashboard decline', {
+            assessmentId: existingLead.assessmentId,
+            error: (err as Error).message,
+          })
         })
       } else if (decision === 'accept') {
         await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'accepted', {})
@@ -20829,6 +20963,22 @@ router.post('/leads/:leadId/transfer', authMiddleware, async (req: any, res) => 
         assignmentType: 'exclusive'
       }
     })
+    // The accepted offer is what grants a case's attorney read and write, so it
+    // has to stop granting it once the case belongs to someone else.
+    await prisma.introduction.updateMany({
+      where: { assessmentId: lead.assessmentId, attorneyId: currentAttorney.id, status: 'ACCEPTED' },
+      data: { status: 'TRANSFERRED' },
+    })
+    await moveCaseChatToAttorney({
+      assessmentId: lead.assessmentId,
+      leadId: lead.id,
+      fromAttorneyId: currentAttorney.id,
+      toAttorneyId: targetAttorney.id,
+      fromName: currentAttorney.name,
+      toName: targetAttorney.name,
+    }).catch((err: Error) =>
+      logger.warn('Moving case chat on transfer failed', { leadId, error: err.message }),
+    )
 
     const currentDashboard = await prisma.attorneyDashboard.findUnique({
       where: { attorneyId: currentAttorney.id }
@@ -20912,7 +21062,9 @@ router.post('/leads/:leadId/status', authMiddleware, async (req: any, res) => {
     // every un-accepted lead. Advancing a lead to 'retained' here assigns it and
     // sets routingLocked, so honouring 'shared' was a second way to claim any
     // unclaimed case by id without ever being offered it.
-    let authorized = isAssigned || !!intro
+    // Only a case in hand: a pending offer moved to 'retained' here would claim
+    // the case without the accept, its fee or its agreement check.
+    let authorized = isAssigned || intro?.status === 'ACCEPTED'
     if (!authorized && firmVisibility.canViewAllCases && firmVisibility.lawFirmId) {
       authorized = await firmHoldsLead(existingLead, firmVisibility.lawFirmId)
     }

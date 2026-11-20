@@ -21,6 +21,7 @@ import { isEngagedLeadStatus } from '../lib/lead-status'
 import { isAttorneyEmailVerified } from '../lib/attorney-email-verified'
 import { isZoomEmbedEnabled } from '../lib/zoom'
 import { hasAttorneyAcceptedAgreement } from '../lib/attorney-agreement'
+import { getAcceptBlocker } from '../lib/accept-prerequisites'
 const router = Router()
 
 async function getAttorneyFromRequest(req: AuthRequest): Promise<{ id: string } | null> {
@@ -134,6 +135,14 @@ router.post('/introductions/:id/accept', authMiddleware, async (req: AuthRequest
       return res.status(403).json({
         error: 'Please accept the Attorney Participation Agreement before accepting cases.',
         code: 'AGREEMENT_REQUIRED',
+      })
+    }
+    const blocker = await getAcceptBlocker(req.params.id, attorney.id)
+    if (blocker) {
+      return res.status(blocker.code === 'ROUTING_FEE_REQUIRED' ? 402 : 409).json({
+        error: blocker.message,
+        code: blocker.code,
+        leadId: blocker.leadId,
       })
     }
 

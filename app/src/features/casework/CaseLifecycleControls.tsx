@@ -4,9 +4,19 @@ import {
   closeLeadCase,
   reopenLeadCase,
   setLeadLitigationStatus,
+  type CaseCloseReason,
   type LitigationStatus,
 } from '../../lib/api'
 import ConfirmDialog from '../../components/ConfirmDialog'
+
+const CLOSE_REASON_OPTIONS: { value: CaseCloseReason; label: string }[] = [
+  { value: 'settled', label: 'Settled' },
+  { value: 'verdict', label: 'Verdict or award' },
+  { value: 'dropped', label: 'Dropped, no recovery' },
+  { value: 'client_withdrew', label: 'Client ended representation' },
+  { value: 'referred_out', label: 'Referred to another firm' },
+  { value: 'other', label: 'Other' },
+]
 
 const LITIGATION_OPTIONS: { value: LitigationStatus; label: string }[] = [
   { value: 'none', label: 'Pre-litigation' },
@@ -31,6 +41,7 @@ export default function CaseLifecycleControls({ leadId, caseStage, litigationSta
   const [busy, setBusy] = useState<null | 'close' | 'reopen' | 'lit'>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmClose, setConfirmClose] = useState(false)
+  const [closeReason, setCloseReason] = useState<CaseCloseReason>('settled')
   const closed = String(caseStage || '').toUpperCase() === 'CLOSED' || !!closedAt
   const litValue = (litigationStatus as LitigationStatus) || 'none'
   const inLitigation = litValue !== 'none' && litValue !== 'resolved'
@@ -39,7 +50,7 @@ export default function CaseLifecycleControls({ leadId, caseStage, litigationSta
     setBusy('close')
     setError(null)
     try {
-      const r = await closeLeadCase(leadId)
+      const r = await closeLeadCase(leadId, closeReason)
       onLocalUpdate?.({ caseStage: r.caseStage ?? 'CLOSED', closedAt: new Date().toISOString() })
       setConfirmClose(false)
     } catch (e: any) {
@@ -155,7 +166,25 @@ export default function CaseLifecycleControls({ leadId, caseStage, litigationSta
       <ConfirmDialog
         open={confirmClose}
         title="Close this case?"
-        message="This materializes the close-out checklist and marks the matter closed."
+        message={
+          <div className="space-y-3">
+            <p>This creates the close-out checklist, marks the matter closed, and tells the client how it ended.</p>
+            <label className="block text-xs font-semibold text-slate-600">
+              How did the case end?
+              <select
+                value={closeReason}
+                onChange={(e) => setCloseReason(e.target.value as CaseCloseReason)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-normal text-slate-800"
+              >
+                {CLOSE_REASON_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        }
         confirmLabel="Close case"
         cancelLabel="Cancel"
         tone="danger"

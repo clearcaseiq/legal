@@ -13,6 +13,7 @@ export default function PaymentSuccess() {
   const fromFirm = searchParams.get('returnTo') === 'firm'
   const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'accepting' | 'accepted' | 'failed'>('idle')
   const [acceptanceError, setAcceptanceError] = useState<string | null>(null)
+  const [feeRefunded, setFeeRefunded] = useState(false)
   // Carry a one-time flag into the workspace so it can greet the attorney with a
   // "Congratulations, this case is now yours" banner right after the purchase.
   const caseWorkspacePathAfterAccept = fromFirm
@@ -56,6 +57,7 @@ export default function PaymentSuccess() {
         // already declined this case: without it the attorney sees a celebration
         // for a case they will never receive and no explanation of the charge.
         setAcceptanceError(error?.response?.data?.error || null)
+        setFeeRefunded(error?.response?.data?.routingFeeRefunded === true)
         setAcceptanceStatus('failed')
       })
 
@@ -99,8 +101,9 @@ export default function PaymentSuccess() {
               {acceptanceError || 'The case acceptance could not be completed.'}
             </p>
             <p className="mt-3 text-sm text-amber-900">
-              Your card was charged for the routing fee but the case was not assigned to you.
-              Contact support and we will reverse the charge.
+              {feeRefunded
+                ? 'The case was not assigned to you, so we refunded the routing fee. Refunds usually reach your card in 5 to 10 business days.'
+                : 'Your card was charged for the routing fee but the case was not assigned to you. Contact support and we will reverse the charge.'}
             </p>
           </>
         ) : type === 'routing_fee' ? (

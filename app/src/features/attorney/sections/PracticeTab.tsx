@@ -110,6 +110,15 @@ export default function PracticeTab({ profile, saving, onSave, onProfileChanged 
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">States</label>
             <StateMultiSelect value={states} onChange={editStates} />
+            {states.length === 0 ? (
+              <p role="alert" className="mt-2 text-xs font-medium text-red-700">
+                With no states selected, no cases will be routed to you.
+              </p>
+            ) : profile.licenseState && states.some((state) => state !== profile.licenseState) ? (
+              <p className="mt-2 text-xs text-amber-700">
+                The license on file is for {licenseStateName}. Only serve states where you are admitted to practice.
+              </p>
+            ) : null}
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">Counties</label>
