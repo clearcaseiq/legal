@@ -3489,7 +3489,8 @@ describe('HTTP operations regressions', () => {
       type: 'video',
       status: 'SCHEDULED',
     })
-    expect(vi.mocked(prisma.assessment.findUnique).mock.calls[0]?.[0]).toEqual({
+    // Background case-change pushes also read the assessment and can land first.
+    expect(prisma.assessment.findUnique).toHaveBeenCalledWith({
       where: { id: 'asm-1' },
       select: {
         userId: true,
