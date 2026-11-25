@@ -50,16 +50,23 @@ export default function Home() {
     return () => observer.disconnect()
   }, [])
 
-  // Resolved after hydration: the server has no storage, so it always renders
-  // the intake. A signed-in claimant goes to their dashboard, and a guest who
-  // already sent a case goes back to that report.
-  const [continueHref, setContinueHref] = useState('/assess')
+  // Resolved after hydration: the server has no storage, so the button only
+  // appears once we know there is a case to continue. A signed-in claimant goes
+  // to their dashboard, and a guest who already sent a case goes back to that report.
+  const [continueHref, setContinueHref] = useState<string | null>(null)
   useEffect(() => {
     if (getStoredRole() === 'plaintiff') {
       setContinueHref('/dashboard')
       return
     }
-    const sentCaseId = getLatestClaimedCaseId()
+    let sentCaseId = getLatestClaimedCaseId()
+    if (!sentCaseId) {
+      try {
+        sentCaseId = localStorage.getItem('pending_assessment_id')
+      } catch {
+        /* storage unavailable */
+      }
+    }
     if (sentCaseId) setContinueHref(`/results/${encodeURIComponent(sentCaseId)}`)
   }, [])
 
@@ -143,6 +150,7 @@ export default function Home() {
                   <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
                   {t('common.startAssessment')}
                 </Link>
+                {continueHref && (
                 <Link
                   to={continueHref}
                   onClick={() => trackCtaClick('hero_resume')}
@@ -150,6 +158,7 @@ export default function Home() {
                 >
                   {t('home.continueCase')}
                 </Link>
+                )}
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
               <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">

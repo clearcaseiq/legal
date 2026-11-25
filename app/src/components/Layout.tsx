@@ -24,7 +24,7 @@ import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken, staffHomeRoute } from '../lib/auth'
 import { DEFAULT_LANGUAGE, LANGUAGES } from '../i18n'
 import { caseTypeHubs } from '../data/caseTypeHubDefs'
-import { hreflangFor, localeHome } from '../i18n/routing'
+import { LOCALE_PREFIXES, hreflangFor, localeHome } from '../i18n/routing'
 import { localizedPath, pathForLocale } from '../data/localePathPairs'
 import { isCalendarRoute, isWideAttorneyRoute, isWideContentRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
@@ -413,10 +413,13 @@ export default function Layout({ children }: LayoutProps) {
   // Signed-in plaintiffs already have Dashboard (and Case Tracker / Profile from
   // the account menu). "Continue My Case" is redundant on every plaintiff
   // workspace screen — including /dashboard, /case-tracker, /profile, and
-  // /results/:id. Keep it only for guests who have a pending case.
+  // /results/:id. Keep it only for guests who have a pending case, and skip it
+  // on the home page, whose hero already has a "Continue My Case" button.
   const hidePlaintiffContinueMyCase =
     (isAuthenticated && !isAttorney && !isAdmin) ||
     isPlaintiffDashboard ||
+    location.pathname === '/' ||
+    Object.values(LOCALE_PREFIXES).includes(location.pathname) ||
     location.pathname.startsWith('/results/') ||
     location.pathname.startsWith('/case-tracker') ||
     location.pathname === '/profile'
