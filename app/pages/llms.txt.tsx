@@ -64,6 +64,11 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
     'These answer a specific question and are the pages most worth citing.',
     '',
     link(
+      '/tools/sol-checker',
+      'Statute of limitations checker',
+      'Educational injury filing-deadline estimates for all 50 states and DC',
+    ),
+    link(
       '/tools/california-sol-checker',
       'California statute of limitations checker',
       'Educational filing-deadline estimates, including the shorter deadline for claims against public entities',

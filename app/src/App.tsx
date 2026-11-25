@@ -283,6 +283,7 @@ const PressPage = dynamic(() => import('./pages/PressPage'), { ssr: true })
 const InsightsPage = dynamic(() => import('./pages/InsightsPage'), { ssr: true })
 const PartnerBadgePage = dynamic(() => import('./pages/PartnerBadgePage'), { ssr: true })
 const CaliforniaSolChecker = dynamic(() => import('./pages/CaliforniaSolChecker'), { ssr: true })
+const StateSolChecker = dynamic(() => import('./pages/StateSolChecker'), { ssr: true })
 const MedicalRecordsChecklistTool = dynamic(
   () => import('./pages/MedicalRecordsChecklistTool'),
   { ssr: true }
@@ -716,6 +717,7 @@ function App() {
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
             {/* Interactive public tools — must be registered before /tools/:slug SEO catch-all. */}
+            <Route path="/tools/sol-checker" element={<StateSolChecker />} />
             <Route path="/tools/california-sol-checker" element={<CaliforniaSolChecker />} />
             <Route path="/tools/medical-records-checklist" element={<MedicalRecordsChecklistTool />} />
             <Route path="/tools/settlement-calculator" element={<SettlementCalculator />} />

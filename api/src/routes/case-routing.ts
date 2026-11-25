@@ -13,7 +13,7 @@ import {
   attorneyDeclineCase,
   recordRoutingEvent
 } from '../lib/routing-lifecycle'
-import { loadPlaintiffAttorneyChoices } from '../lib/plaintiff-attorney-choices'
+import { isLapsedOffer, loadPlaintiffAttorneyChoices } from '../lib/plaintiff-attorney-choices'
 import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { getAppointmentPreparation, seedAppointmentPrepItems } from '../lib/appointment-engagement'
 import { careFinishedOnRecord } from '../lib/workflow-signals'
@@ -235,6 +235,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         introductions: {
           select: {
             status: true,
+            requestedAt: true,
             respondedAt: true,
             updatedAt: true,
             attorney: { select: caseAttorneySelect }
@@ -251,12 +252,21 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     let lead = assessment.leadSubmission
     const intros = assessment.introductions
     const accepted = intros.find(i => i.status === 'ACCEPTED')
-    const reviewingCount = intros.filter(i => i.status === 'PENDING').length
+    const matchingRules = await getMatchingRules()
+    const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
+    const reviewingCount = intros.filter(
+      (i) => i.status === 'PENDING' && !isLapsedOffer(i, responseDeadlineMinutes),
+    ).length
 
     const rankedAttorneys = await loadPlaintiffAttorneyChoices({
       lead,
       facts: assessment.facts,
-      introductions: intros.map((intro) => ({ attorneyId: intro.attorney.id, status: intro.status })),
+      introductions: intros.map((intro) => ({
+        attorneyId: intro.attorney.id,
+        status: intro.status,
+        requestedAt: intro.requestedAt,
+      })),
+      responseDeadlineMinutes,
     })
 
     // Safety net: signed retainer must surface as retained for plaintiff Case
@@ -468,8 +478,6 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       }).catch(() => []),
     ])
 
-    const matchingRules = await getMatchingRules()
-    const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
     const responseDeadlineHours = Math.ceil(responseDeadlineMinutes / 60)
     const responseDeadlineLabel = formatAttorneyResponseDeadline(responseDeadlineMinutes)
 

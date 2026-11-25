@@ -39,6 +39,7 @@ const PUBLIC_APP_PATHS = new Set([
   '/press',
   '/privacy-policy',
   '/terms-of-service',
+  '/tools/sol-checker',
   '/tools/california-sol-checker',
   '/tools/medical-records-checklist',
   '/ai-ml-consent',

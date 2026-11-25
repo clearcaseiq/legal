@@ -13,7 +13,8 @@ import { updateClaimantContact } from '../lib/claimant-contact'
 import { getRankedAttorneyIdsFromLead, recordRoutingEvent } from '../lib/routing-lifecycle'
 import { assertShareAuthorization } from '../lib/share-authorization'
 import { routeCaseReleasedFromReview } from '../lib/manual-review-release'
-import { loadPlaintiffAttorneyChoices } from '../lib/plaintiff-attorney-choices'
+import { isLapsedOffer, loadPlaintiffAttorneyChoices } from '../lib/plaintiff-attorney-choices'
+import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 import { isEngagedLeadStatus } from '../lib/lead-status'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { sendCaseOfferToAttorney } from '../lib/case-notifications'
@@ -1027,6 +1028,7 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
             id: true,
             status: true,
             createdAt: true,
+            requestedAt: true,
             waveNumber: true,
             declineReason: true,
             attorney: { select: { id: true, name: true, email: true } },
@@ -1114,11 +1116,20 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       diagnosticAttorneys.map((a) => [a.id, { name: a.name, firmName: a.lawFirm?.name ?? null }])
     )
 
+    const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(await getMatchingRules())
     const plaintiffChoices = await loadPlaintiffAttorneyChoices({
       lead: assessment.leadSubmission,
       facts: assessment.facts,
-      introductions: assessment.introductions.map((intro) => ({ attorneyId: intro.attorney.id, status: intro.status })),
+      introductions: assessment.introductions.map((intro) => ({
+        attorneyId: intro.attorney.id,
+        status: intro.status,
+        requestedAt: intro.requestedAt,
+      })),
+      responseDeadlineMinutes,
     })
+    if (assessment.introductions.some((intro) => isLapsedOffer(intro, responseDeadlineMinutes))) {
+      triggerOfferExpirySweepSoon()
+    }
     const { sourceDetails: _sourceDetails, ...leadSubmission } = assessment.leadSubmission ?? { sourceDetails: null }
 
     const pred = assessment.predictions[0]

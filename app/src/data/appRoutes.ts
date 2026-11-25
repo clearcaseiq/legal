@@ -85,6 +85,7 @@ export const KNOWN_ROUTE_PATHS = new Set([
   '/press',
   '/insights',
   '/partners/badge',
+  '/tools/sol-checker',
   '/tools/california-sol-checker',
   '/tools/medical-records-checklist',
   '/auth-debug',

@@ -84,6 +84,7 @@ const MOBILE_ASSESSMENT_CTA_ROUTES = new Set<string>([
   '/insights',
   '/blog',
   '/partners/badge',
+  '/tools/sol-checker',
   '/tools/california-sol-checker',
   '/tools/medical-records-checklist',
   '/help',
@@ -1042,7 +1043,7 @@ export default function Layout({ children }: LayoutProps) {
                 <li><Link to={navLinks.topics} className="text-slate-400 transition-colors hover:text-white">{t('footer.topicLibrary')}</Link></li>
               <li><Link to="/editorial-standards" className="text-slate-400 transition-colors hover:text-white">Editorial standards</Link></li>
                 <li><Link to="/attorneys" className="text-slate-400 transition-colors hover:text-white">Attorney directory</Link></li>
-                <li><Link to="/tools/california-sol-checker" className="text-slate-400 transition-colors hover:text-white">SOL checker</Link></li>
+                <li><Link to="/tools/sol-checker" className="text-slate-400 transition-colors hover:text-white">SOL checker</Link></li>
                 <li><Link to="/tools/medical-records-checklist" className="text-slate-400 transition-colors hover:text-white">Records checklist</Link></li>
                 <li><Link to="/blog" className="text-slate-400 transition-colors hover:text-white">Blog</Link></li>
                 <li><Link to="/insights" className="text-slate-400 transition-colors hover:text-white">Insights</Link></li>

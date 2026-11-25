@@ -9,8 +9,8 @@
  * so a lapsed offer never strands the plaintiff.
  *
  * Exposed to the in-process scheduler (api/src/index.ts). Idempotent and safe to run
- * repeatedly: only PENDING intros past their deadline on still-open cases are touched,
- * and runEscalationWave no-ops once a case is matched/locked.
+ * repeatedly: only PENDING intros past their deadline are touched, routing only
+ * advances on still-open cases, and runEscalationWave no-ops once a case is matched/locked.
  */
 
 import { prisma } from './prisma'
@@ -103,20 +103,25 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
   })
   if (stale.length === 0) return { expired: 0, escalated: 0 }
 
-  // Only lapse offers whose case is still open (not accepted/locked by anyone).
+  // A lapsed offer is expired whatever became of the case: left PENDING it reads
+  // as an attorney still reviewing, forever. Routing only moves on for cases
+  // that are still open, and never past the attorney who already holds the case.
   const assessmentIds = [...new Set(stale.map((i) => i.assessmentId))]
   const leads = await prisma.leadSubmission.findMany({
     where: { assessmentId: { in: assessmentIds } },
-    select: { id: true, assessmentId: true, status: true, routingLocked: true },
+    select: { id: true, assessmentId: true, status: true, routingLocked: true, assignedAttorneyId: true },
   })
-  const leadIdByAssessment = new Map(leads.map((l) => [l.assessmentId, l.id]))
+  const leadByAssessment = new Map(leads.map((l) => [l.assessmentId, l]))
   const openAssessments = new Set(
     leads
       .filter((l) => !l.routingLocked && l.status === 'submitted')
       .map((l) => l.assessmentId),
   )
 
-  const toExpire = stale.filter((i) => openAssessments.has(i.assessmentId))
+  const toExpire = stale.filter((i) => {
+    const lead = leadByAssessment.get(i.assessmentId)
+    return !(lead?.routingLocked && lead.assignedAttorneyId === i.attorneyId)
+  })
   if (toExpire.length === 0) return { expired: 0, escalated: 0 }
 
   let expired = 0
@@ -134,14 +139,15 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
         reason: 'offer_response_window_elapsed',
         deadlineMinutes,
       })
-      // Notify the attorney their offer lapsed and was released to the next attorney.
       await notifyAttorneyInApp({
         attorneyId: intro.attorneyId,
         assessmentId: intro.assessmentId,
         eventType: ATTORNEY_EVENTS.case_expired,
         subject: 'Match expired',
-        body: 'A matched case you were reviewing expired and has been released to another attorney.',
-        leadId: leadIdByAssessment.get(intro.assessmentId) || null,
+        body: openAssessments.has(intro.assessmentId)
+          ? 'A matched case you were reviewing expired and has been released to another attorney.'
+          : 'A matched case you were reviewing expired.',
+        leadId: leadByAssessment.get(intro.assessmentId)?.id || null,
         link: '/attorney-dashboard/leadgen/matches',
       }).catch(() => {})
     } catch (err) {
@@ -151,7 +157,7 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
 
   // Advance routing once per affected case (idempotent; no-ops if already matched).
   let escalated = 0
-  for (const assessmentId of [...new Set(toExpire.map((i) => i.assessmentId))]) {
+  for (const assessmentId of [...new Set(toExpire.map((i) => i.assessmentId))].filter((id) => openAssessments.has(id))) {
     try {
       const result = await runEscalationWave(assessmentId)
       if (result.escalated) escalated += 1

@@ -126,6 +126,13 @@ export const marketingPages: MarketingPage[] = [
     serverRender: true,
   },
   {
+    path: '/tools/sol-checker',
+    title: 'Statute of Limitations Checker (All 50 States) | ClearCaseIQ',
+    description:
+      'Educational personal injury deadline checker for every U.S. state and DC. Estimate your filing window by state and claim type. Not legal advice.',
+    serverRender: true,
+  },
+  {
     path: '/tools/california-sol-checker',
     title: 'California Statute of Limitations Checker | ClearCaseIQ',
     description:

@@ -30,7 +30,7 @@ type MoneyFields = {
 }
 
 const defaultRelatedTools = [
-  { label: 'Check your filing deadline', to: '/tools/california-sol-checker' },
+  { label: 'Check your filing deadline', to: '/tools/sol-checker' },
   { label: 'Settlement value by injury', to: '/topics/settlement-value' },
 ]
 

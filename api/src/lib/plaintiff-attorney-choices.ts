@@ -11,8 +11,25 @@ export interface PlaintiffAttorneyChoice {
   status: PlaintiffChoiceStatus
 }
 
-function choiceStatus(introductionStatus: string | undefined): PlaintiffChoiceStatus {
-  switch (introductionStatus) {
+type ChoiceIntroduction = { attorneyId: string; status: string; requestedAt?: Date | string | null }
+
+/**
+ * An offer past its response window, still stored as PENDING until the expiry
+ * sweep reaches it. Shown as lapsed so nobody reads it as an attorney reviewing.
+ */
+export function isLapsedOffer(
+  intro: { status: string; requestedAt?: Date | string | null },
+  responseDeadlineMinutes: number | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (intro.status !== 'PENDING' || !intro.requestedAt || !responseDeadlineMinutes) return false
+  const requested = new Date(intro.requestedAt).getTime()
+  return Number.isFinite(requested) && requested + responseDeadlineMinutes * 60_000 <= now
+}
+
+function choiceStatus(intro: ChoiceIntroduction | undefined, responseDeadlineMinutes?: number | null): PlaintiffChoiceStatus {
+  if (intro && isLapsedOffer(intro, responseDeadlineMinutes)) return 'no_response'
+  switch (intro?.status) {
     case 'PENDING':
     case 'REQUESTED_INFO':
       return 'reviewing'
@@ -52,7 +69,9 @@ export function plaintiffRankedAttorneyIds(
 export async function loadPlaintiffAttorneyChoices(params: {
   lead: { sourceDetails?: string | null } | null | undefined
   facts: string | null | undefined
-  introductions: Array<{ attorneyId: string; status: string }>
+  introductions: ChoiceIntroduction[]
+  /** The attorney response window; with it, a lapsed PENDING offer reads as no response. */
+  responseDeadlineMinutes?: number | null
 }): Promise<PlaintiffAttorneyChoice[]> {
   const rankedIds = plaintiffRankedAttorneyIds(params.lead, params.facts)
   if (rankedIds.length === 0) return []
@@ -64,7 +83,13 @@ export async function loadPlaintiffAttorneyChoices(params: {
     })
     .catch(() => [])
   const attorneyById = new Map(attorneys.map((attorney) => [attorney.id, attorney]))
-  const introStatusByAttorneyId = new Map(params.introductions.map((intro) => [intro.attorneyId, intro.status]))
+  // An attorney can be offered the same case more than once; the latest offer is where they stand.
+  const time = (intro: ChoiceIntroduction) => (intro.requestedAt ? new Date(intro.requestedAt).getTime() : 0)
+  const introByAttorneyId = new Map<string, ChoiceIntroduction>()
+  for (const intro of params.introductions) {
+    const prior = introByAttorneyId.get(intro.attorneyId)
+    if (!prior || time(intro) >= time(prior)) introByAttorneyId.set(intro.attorneyId, intro)
+  }
 
   return rankedIds.flatMap((attorneyId, index) => {
     const attorney = attorneyById.get(attorneyId)
@@ -74,7 +99,7 @@ export async function loadPlaintiffAttorneyChoices(params: {
       rank: index + 1,
       name: attorney.name,
       firmName: attorney.lawFirm?.name ?? null,
-      status: choiceStatus(introStatusByAttorneyId.get(attorneyId)),
+      status: choiceStatus(introByAttorneyId.get(attorneyId), params.responseDeadlineMinutes),
     }]
   })
 }

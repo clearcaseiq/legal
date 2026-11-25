@@ -157,7 +157,7 @@ export default function Home() {
                 {/* The checker is English-only, like the case guides below. */}
                 {language === DEFAULT_LANGUAGE && (
                   <Link
-                    to="/tools/california-sol-checker"
+                    to="/tools/sol-checker"
                     className="font-semibold text-brand-700 underline underline-offset-4 hover:text-brand-800 dark:text-brand-300"
                   >
                     {t('home.heroDeadlineLink')}

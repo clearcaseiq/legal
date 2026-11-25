@@ -20,6 +20,7 @@ type SnippetKind = 'cite' | 'citeHtml' | 'embed'
  * strands the visitor inside a nested scrollbar.
  */
 const EMBEDDABLE_TOOLS: Record<string, { label: string; height: number }> = {
+  '/tools/sol-checker': { label: 'Statute of limitations checker (all states)', height: 640 },
   '/tools/california-sol-checker': { label: 'California statute of limitations checker', height: 640 },
   '/tools/medical-records-checklist': { label: 'Medical records checklist', height: 900 },
   '/tools/settlement-calculator': { label: 'Accident settlement calculator', height: 1180 },
