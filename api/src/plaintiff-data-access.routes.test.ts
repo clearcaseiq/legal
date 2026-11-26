@@ -33,6 +33,7 @@ vi.mock('./lib/auth', () => {
   const users: Record<string, any> = {
     plaintiff: { id: 'user-1', email: 'plaintiff@example.com', role: 'user', isActive: true },
     stranger: { id: 'user-2', email: 'stranger@example.com', role: 'user', isActive: true },
+    admin: { id: 'admin-1', email: 'admin@example.com', role: 'admin', isActive: true },
   }
 
   function resolveUser(req: any) {
@@ -180,6 +181,45 @@ describe('plaintiff case-data authorization', () => {
       expect(prisma.evidenceFile.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 200 }),
       )
+    })
+  })
+
+  describe('intake under a staff session', () => {
+    const intake = {
+      claimType: 'auto',
+      venue: { state: 'CA', county: 'Los Angeles' },
+      incident: { date: '2026-01-15', narrative: 'Detailed narrative about a rear-end crash here.' },
+      injuries: [{ description: 'neck pain' }],
+      damages: {},
+      consents: { tos: true, privacy: true, ml_use: true },
+    }
+
+    it('files the case without an owner and hands back a claim token when an admin is signed in', async () => {
+      vi.mocked(prisma.assessment.create).mockResolvedValue({ id: 'asm-new', status: 'DRAFT', createdAt: new Date() } as any)
+
+      const res = await request(app)
+        .post('/v1/assessments')
+        .set('Authorization', 'Bearer admin')
+        .send(intake)
+        .expect(200)
+
+      const { data } = vi.mocked(prisma.assessment.create).mock.calls[0][0] as any
+      expect(data.userId).toBeUndefined()
+      expect(res.body.claim_token).toEqual(expect.any(String))
+    })
+
+    it('still files the case under a signed-in claimant', async () => {
+      vi.mocked(prisma.assessment.create).mockResolvedValue({ id: 'asm-new', status: 'DRAFT', createdAt: new Date() } as any)
+
+      const res = await request(app)
+        .post('/v1/assessments')
+        .set('Authorization', 'Bearer plaintiff')
+        .send(intake)
+        .expect(200)
+
+      const { data } = vi.mocked(prisma.assessment.create).mock.calls[0][0] as any
+      expect(data.userId).toBe('user-1')
+      expect(res.body.claim_token).toBeUndefined()
     })
   })
 

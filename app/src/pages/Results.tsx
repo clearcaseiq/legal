@@ -101,6 +101,16 @@ import {
   ArrowLeft,
 } from 'lucide-react'
 
+const NON_CLAIMANT_ROLES = ['attorney', 'admin', 'staff', 'specialist']
+
+/** A session counts as the claimant's own only for a claimant account, never for an admin or attorney testing the flow. */
+function isClaimantSession(session: { user?: { role?: string | null } | null } | null | undefined): boolean {
+  if (!session?.user) return false
+  if (NON_CLAIMANT_ROLES.includes(String(session.user.role || '').toLowerCase())) return false
+  const storedRole = getStoredRole()
+  return !storedRole || storedRole === 'plaintiff'
+}
+
 function initialPlaintiffLoggedInState(): boolean | null {
   try {
     if (typeof window === 'undefined') return null
@@ -1614,7 +1624,7 @@ export default function Results() {
         
         try {
           const session = await loadPlaintiffSessionSummary()
-          if (!cancelled) setIsLoggedIn(!!session?.user)
+          if (!cancelled) setIsLoggedIn(isClaimantSession(session))
         } catch {
           if (!cancelled) setIsLoggedIn(false)
         }
@@ -1919,7 +1929,7 @@ export default function Results() {
       try {
         const session = await loadPlaintiffSessionSummary()
         if (isLoggedIn === null) {
-          setIsLoggedIn(!!session?.user)
+          setIsLoggedIn(isClaimantSession(session))
         }
       } catch {
         if (isLoggedIn === null) {

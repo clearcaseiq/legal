@@ -84,6 +84,15 @@ import { plaintiffSignatureDocList } from '../lib/esign/plaintiff-doc-list'
 
 const router = Router()
 
+/**
+ * The signed-in user when they are a claimant. An admin or attorney testing the
+ * claimant flow in the same browser must not become the owner of the case they
+ * file, so on intake and submit they are treated like a guest.
+ */
+function claimantUser(req: AuthRequest) {
+  return req.user && req.user.role === 'user' ? req.user : undefined
+}
+
 const DamageEstimates = z.object({
   medicalBillsEstimate: z.number().min(0).optional(),
   lostWagesEstimate: z.number().min(0).optional(),
@@ -202,9 +211,10 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       medicalProfile: buildMedicalProfile(parsed.data as Record<string, unknown>),
     }
 
+    const claimant = claimantUser(req)
     const assessment = await prisma.assessment.create({
       data: {
-        userId: req.user?.id, // Associate with user if logged in
+        userId: claimant?.id, // Associate with user if logged in
         claimType: parsed.data.claimType,
         venueState: parsed.data.venue.state,
         venueCounty: parsed.data.venue.county ?? null,
@@ -234,7 +244,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         void prisma.consent
           .create({
             data: {
-              userId: req.user?.id ?? null,
+              userId: claimant?.id ?? null,
               assessmentId: assessment.id,
               consentType: PLATFORM_DISCLOSURE_CONSENT_TYPE,
               version: template.version,
@@ -288,7 +298,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     // A guest's browser is the only holder of this case until they register. The
     // token lets sign-up keep this exact case even under a different email.
     let claimToken: string | null = null
-    if (!req.user) {
+    if (!claimant) {
       try {
         claimToken = createClaimToken(assessment.id)
       } catch (tokenError) {
@@ -1668,6 +1678,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       access: 'write',
     })
     if (!allowedToSubmit) return
+    const claimant = claimantUser(req)
 
     const assessment = await prisma.assessment.findUnique({
       where: { id },
@@ -1698,9 +1709,9 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // the person behind it has a claim. They can still say it is a different
     // incident: a parent filing for themselves and a child after one crash is
     // two cases of the same type under one email.
-    if ((verifiedOtpId || req.user) && !parsed.data.confirmSeparateCase) {
+    if ((verifiedOtpId || claimant) && !parsed.data.confirmSeparateCase) {
       const earlier = await findRecentSubmittedCaseForContact({
-        email: email || req.user?.email || null,
+        email: email || claimant?.email || null,
         phone: phone || null,
         claimType: assessment.claimType,
         excludeAssessmentId: id,
@@ -1742,8 +1753,8 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // empty dashboard, because nothing ever joined the two rows (CP-811).
     const contactEmail = (email || (plaintiffContext.email as string | undefined) || '').trim()
     const contactPhone = (phone || (plaintiffContext.phone as string | undefined) || '').trim()
-    let caseOwnerUserId = req.user?.id ?? assessment.userId ?? null
-    if (!req.user && contactEmail) {
+    let caseOwnerUserId = claimant?.id ?? assessment.userId ?? null
+    if (!claimant && contactEmail) {
       const intakeUser = await findOrCreateIntakeUser({ email: contactEmail, phone: contactPhone })
       if (intakeUser) caseOwnerUserId = intakeUser.id
     }
@@ -1823,7 +1834,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     }
 
-    const medicalSharingAuthorized = Boolean(req.user && consents.hipaa === true)
+    const medicalSharingAuthorized = Boolean(claimant && consents.hipaa === true)
 
     await updateCaseFacts({
       assessmentId: id,
@@ -1855,11 +1866,11 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       isExclusive: false,
       sourceType: 'plaintiff',
       sourceDetails: JSON.stringify({
-        ...(req.user ? { userId: req.user.id } : {}),
+        ...(claimant ? { userId: claimant.id } : {}),
         submissionScope: medicalSharingAuthorized ? 'full_with_medical_authorization' : 'limited_non_medical',
         medicalSharing: {
           canShareMedicalData: medicalSharingAuthorized,
-          hasPlaintiffAccount: Boolean(req.user),
+          hasPlaintiffAccount: Boolean(claimant),
           hasHipaaConsent: consents.hipaa === true,
           message: medicalSharingAuthorized
             ? null
@@ -1912,7 +1923,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     } else {
       await prisma.leadSubmission.create({ data: { assessmentId: id, ...leadData } })
     }
-    logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
+    logger.info('Case submitted for review', { assessmentId: id, userId: claimant?.id })
     if (verifiedOtpId) await consumeCaseSubmitOtp(verifiedOtpId)
 
     // A guest has just proved they hold this case's contact details, so hand back
@@ -1920,7 +1931,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // keeps this case id on their account even if they register under a
     // different email than the one they submitted with.
     let claimToken: string | null = null
-    if (!req.user) {
+    if (!claimant) {
       try {
         claimToken = createClaimToken(id)
       } catch (tokenErr) {
@@ -1947,7 +1958,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         entityType: 'assessment',
         entityId: id,
         summary: 'Case submitted to the attorney network',
-        actor: { type: 'user', id: req.user?.id ?? null, label: (email as string | undefined) ?? null },
+        actor: { type: 'user', id: claimant?.id ?? null, label: (email as string | undefined) ?? null },
       })
     }
 
@@ -1976,7 +1987,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       // in, since plenty of submitters already have an account — and have this
       // exact case attached to it so they can track it.
       let claimLine = ''
-      if (!req.user) {
+      if (!claimant) {
         try {
           const claimUrl = webUrl(`/register?claim=${encodeURIComponent(createClaimToken(id))}`)
           // A button, not a pasted URL. The claim token is a JWT, so spelled out
@@ -2001,7 +2012,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         // eligible existed, and the follow-up then had to contradict it.
         message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our team is reviewing it now and looking for attorneys who handle this type of claim in your area. We'll email you as soon as there is an update.${referenceLine}\n\nWhat happens next:\n• We review your case summary and match it against attorneys in your area\n• We email you as soon as an attorney responds\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
         cta: ctas,
-        userId: req.user?.id || null,
+        userId: claimant?.id || null,
         assessmentId: id,
         role: 'plaintiff',
         metadata: { eventType: 'case_submitted_confirmation', assessmentId: id },
