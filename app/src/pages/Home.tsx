@@ -146,29 +146,24 @@ export default function Home() {
                 </li>
               </ul>
               <div className="flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap lg:items-center lg:justify-start sm:justify-center">
-                {/* A returning claimant most likely came back for their case, so
-                    "Continue" takes the primary style and "Start" steps down. */}
-                {continueHref && (
-                <Link
-                  to={continueHref}
-                  onClick={() => trackCtaClick('hero_resume')}
-                  className={`${PRIMARY_HERO_CTA} group`}
-                >
-                  <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
-                  {t('home.continueCase')}
-                </Link>
-                )}
                 <Link
                   ref={heroCtaRef}
                   to={START_ASSESSMENT_HREF}
                   onClick={() => trackCtaClick('hero')}
-                  className={continueHref ? SECONDARY_HERO_CTA : `${PRIMARY_HERO_CTA} group`}
+                  className={`${PRIMARY_HERO_CTA} group`}
                 >
-                  {!continueHref && (
-                    <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
-                  )}
+                  <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
                   {t('common.startAssessment')}
                 </Link>
+                {continueHref && (
+                <Link
+                  to={continueHref}
+                  onClick={() => trackCtaClick('hero_resume')}
+                  className={SECONDARY_HERO_CTA}
+                >
+                  {t('home.continueCase')}
+                </Link>
+                )}
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
               <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
