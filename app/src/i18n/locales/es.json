@@ -3885,7 +3885,6 @@
       "batchDeclinedMsg": "Entendido. No contactaremos a esos abogados. Nuestro equipo se comunicará con usted sobre otras opciones.",
       "choice": "Opción {{n}}",
       "contactChoiceOrder": "Contactaremos primero a la Opción 1. Si rechazan o no responden a tiempo, pasamos automáticamente a la siguiente opción.",
-      "contactMethod_phone": "Teléfono",
       "contactMethod_text": "Mensaje de texto",
       "contactMethod_email": "Correo electrónico",
       "contactSelected": "Contactar a {{count}} abogados seleccionados",

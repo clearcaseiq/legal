@@ -28,6 +28,11 @@ import {
   CheckCircleIcon,
 } from '../components/StartupIcons'
 
+const PRIMARY_HERO_CTA =
+  'btn-cta px-8 py-4 text-lg shadow-xl shadow-accent-500/30 duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 sm:whitespace-nowrap sm:px-11 sm:py-5 sm:text-xl'
+const SECONDARY_HERO_CTA =
+  'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-4 text-base font-semibold text-slate-800 transition-colors hover:border-brand-300 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-brand-600 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900 sm:whitespace-nowrap sm:py-5'
+
 // Icons for the How-It-Works steps — mirrors the treatment on /how-it-works.
 const STEP_ICONS = [ClipboardList, BarChart3, Users, MessageCircle]
 
@@ -140,25 +145,30 @@ export default function Home() {
                   {t('home.heroItem3')}
                 </li>
               </ul>
-              <div className="flex flex-col items-center gap-3 sm:flex-row lg:items-center lg:justify-start sm:justify-center">
-                <Link
-                  ref={heroCtaRef}
-                  to={START_ASSESSMENT_HREF}
-                  onClick={() => trackCtaClick('hero')}
-                  className="btn-cta group px-8 py-4 text-lg shadow-xl shadow-accent-500/30 duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 sm:px-11 sm:py-5 sm:text-xl"
-                >
-                  <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
-                  {t('common.startAssessment')}
-                </Link>
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap lg:items-center lg:justify-start sm:justify-center">
+                {/* A returning claimant most likely came back for their case, so
+                    "Continue" takes the primary style and "Start" steps down. */}
                 {continueHref && (
                 <Link
                   to={continueHref}
                   onClick={() => trackCtaClick('hero_resume')}
-                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-4 text-base font-semibold text-slate-800 transition-colors hover:border-brand-300 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-brand-600 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900 sm:py-5"
+                  className={`${PRIMARY_HERO_CTA} group`}
                 >
+                  <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
                   {t('home.continueCase')}
                 </Link>
                 )}
+                <Link
+                  ref={heroCtaRef}
+                  to={START_ASSESSMENT_HREF}
+                  onClick={() => trackCtaClick('hero')}
+                  className={continueHref ? SECONDARY_HERO_CTA : `${PRIMARY_HERO_CTA} group`}
+                >
+                  {!continueHref && (
+                    <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
+                  )}
+                  {t('common.startAssessment')}
+                </Link>
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
               <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">

@@ -3885,7 +3885,6 @@
       "batchDeclinedMsg": "明白了。我们不会联系那些律师。我们的团队将就其他选择与您跟进。",
       "choice": "选择 {{n}}",
       "contactChoiceOrder": "我们会先联系选择 1。如果对方拒绝或超时未回复，我们会自动转到下一个选择。",
-      "contactMethod_phone": "电话",
       "contactMethod_text": "短信",
       "contactMethod_email": "电子邮件",
       "contactSelected": "联系所选的 {{count}} 位律师",

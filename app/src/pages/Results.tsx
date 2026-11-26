@@ -832,7 +832,7 @@ export default function Results() {
   // informed choice (add records vs. send limited) rather than a hard block.
   const [sendInterstitialOpen, setSendInterstitialOpen] = useState(false)
   const [attorneyInterestWhyOpen, setAttorneyInterestWhyOpen] = useState(false)
-  const [contactForm, setContactForm] = useState({ firstName: '', email: '', phone: '', preferredContactMethod: 'phone' as 'phone' | 'text' | 'email' })
+  const [contactForm, setContactForm] = useState({ firstName: '', email: '', phone: '', preferredContactMethod: 'text' as 'text' | 'email' })
   const [hipaaAuthorizationComplete, setHipaaAuthorizationComplete] = useState(() =>
     typeof window !== 'undefined' && localStorage.getItem('consent_read_hipaa') === 'true'
   )
@@ -3805,10 +3805,10 @@ Checklist:
               <div>
                       <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.preferredContact')}</label>
                       <div className="flex flex-wrap gap-2">
-                  {(['phone', 'text', 'email'] as const).map(m => (
+                  {(['text', 'email'] as const).map(m => (
                           <button key={m} type="button" onClick={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
                             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${contactForm.preferredContactMethod === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                            {m === 'phone' ? <Phone className="h-3.5 w-3.5" /> : m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
+                            {m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
                             {t(`results.calc.contactMethod_${m}`)}
                           </button>
                   ))}
@@ -3832,10 +3832,10 @@ Checklist:
                     <div className="sm:text-right">
                       <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('results.calc.preferredContact')}</p>
                       <div className="flex flex-wrap gap-2 sm:justify-end">
-                        {(['phone', 'text', 'email'] as const).map(m => (
+                        {(['text', 'email'] as const).map(m => (
                           <button key={m} type="button" onClick={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
                             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${contactForm.preferredContactMethod === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                            {m === 'phone' ? <Phone className="h-3.5 w-3.5" /> : m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
+                            {m === 'text' ? <MessageSquare className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
                             {t(`results.calc.contactMethod_${m}`)}
                     </button>
                         ))}

@@ -2899,7 +2899,6 @@
       "batchDeclinedMsg": "Understood. We will not contact those attorneys. Our team will follow up with you about other options.",
       "choice": "Choice {{n}}",
       "contactChoiceOrder": "We will contact Choice 1 first. If they decline or time out, we automatically move to the next choice.",
-      "contactMethod_phone": "Phone",
       "contactMethod_text": "Text",
       "contactMethod_email": "Email",
       "contactSelected": "Contact {{count}} selected attorneys",
