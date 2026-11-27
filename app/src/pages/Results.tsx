@@ -4023,12 +4023,31 @@ Checklist:
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle className="h-5 w-5" /></span>
                   <div>
                     <h3 id="submit-verify-title" className="text-base font-semibold text-slate-900">{t('results.sendReview.alreadySubmittedTitle')}</h3>
-                    <p className="mt-1 text-sm text-slate-600">{t('results.sendReview.alreadySubmittedBody')}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {t(isLoggedIn ? 'results.sendReview.alreadySubmittedBody' : 'results.sendReview.alreadySubmittedGuestBody')}
+                    </p>
                   </div>
                 </div>
                 {submitVerify.error && <p className="mt-3 text-sm text-red-600" role="alert">{submitVerify.error}</p>}
                 <div className="mt-5 flex flex-col gap-2">
-                  <Link to="/dashboard" className="btn-primary w-full text-center">{t('results.sendReview.alreadySubmittedCta')}</Link>
+                  {/* The dashboard needs a claimant sign-in, which a guest does not have yet. */}
+                  {isLoggedIn ? (
+                    <Link to="/dashboard" className="btn-primary w-full text-center">{t('results.sendReview.alreadySubmittedCta')}</Link>
+                  ) : (
+                    <Link
+                      to={`/register?redirect=${encodeURIComponent('/dashboard')}`}
+                      onClick={() =>
+                        savePendingRegistration({
+                          firstName: contactForm.firstName,
+                          email: contactForm.email,
+                          phone: contactForm.phone,
+                        })
+                      }
+                      className="btn-primary w-full text-center"
+                    >
+                      {t('results.sendReview.alreadySubmittedGuestCta')}
+                    </Link>
+                  )}
                   <button type="button" className="btn-ghost w-full" disabled={submitVerify.busy} onClick={() => void sendSeparateCase()}>
                     {submitVerify.busy ? t('results.calc.sending') : t('results.sendReview.alreadySubmittedDifferent')}
                   </button>

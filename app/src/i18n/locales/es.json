@@ -3458,6 +3458,8 @@
       "alreadySubmittedTitle": "Ya tenemos su caso",
       "alreadySubmittedBody": "Hace poco nos envió un caso como este, así que no lo enviamos de nuevo. Puede ver su estado y agregar documentos desde su panel.",
       "alreadySubmittedCta": "Ir a mi panel",
+      "alreadySubmittedGuestBody": "Nos enviaste un caso como este hace poco, así que no lo enviamos de nuevo. Crea una cuenta gratuita con el mismo correo para ver su estado y agregar documentos.",
+      "alreadySubmittedGuestCta": "Crear una cuenta para verlo",
       "alreadySubmittedDifferent": "Es un incidente diferente. Enviarlo de todos modos",
       "captchaPending": "Todavía estamos haciendo una verificación de seguridad rápida. Espere un momento e inténtelo de nuevo.",
       "readySubtitle": "Revise sus opciones antes de enviar su caso.",

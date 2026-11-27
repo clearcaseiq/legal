@@ -2472,6 +2472,8 @@
       "alreadySubmittedTitle": "We already have your case",
       "alreadySubmittedBody": "You sent us a case like this recently, so we haven't sent it again. You can check its status and add documents from your dashboard.",
       "alreadySubmittedCta": "Go to my dashboard",
+      "alreadySubmittedGuestBody": "You sent us a case like this recently, so we haven't sent it again. Create a free account with the same email to check its status and add documents.",
+      "alreadySubmittedGuestCta": "Create an account to see it",
       "alreadySubmittedDifferent": "This is a different incident. Send it anyway",
       "captchaPending": "We're still running a quick security check. Please wait a moment and try again.",
       "readySubtitle": "Review your choices before we send your case.",

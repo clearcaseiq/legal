@@ -3458,6 +3458,8 @@
       "alreadySubmittedTitle": "我们已经收到您的案件",
       "alreadySubmittedBody": "您最近已经向我们提交过类似的案件，因此我们没有重复发送。您可以在控制面板中查看进度并添加文件。",
       "alreadySubmittedCta": "前往我的控制面板",
+      "alreadySubmittedGuestBody": "您最近已向我们提交过类似的案件，因此我们没有再次发送。使用相同的电子邮件创建免费账户，即可查看进度并添加文件。",
+      "alreadySubmittedGuestCta": "创建账户查看案件",
       "alreadySubmittedDifferent": "这是另一起事故，仍然发送",
       "captchaPending": "我们仍在进行快速安全检查。请稍候再试。",
       "readySubtitle": "在我们发送您的案件之前，请检查您的选择。",
