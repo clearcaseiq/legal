@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { resolveUserRole } from './auth'
 
 export interface IntakeContact {
   email?: string | null
@@ -27,6 +28,12 @@ export async function findOrCreateIntakeUser(contact: IntakeContact) {
   try {
     const existing = await prisma.user.findUnique({ where: { email } })
     if (existing) {
+      // An attorney, admin or staff login cannot sign in as a claimant, so a
+      // case filed under it is unreachable. Leave the case unowned instead.
+      if (resolveUserRole(existing) !== 'user' || (await prisma.attorney.findUnique({ where: { email }, select: { id: true } }))) {
+        logger.info('Intake contact email belongs to a non-claimant account; not attaching', { userId: existing.id })
+        return null
+      }
       // Backfill phone if intake now has one and the account didn't.
       if (phone && !existing.phone) {
         await prisma.user.update({ where: { id: existing.id }, data: { phone } })
