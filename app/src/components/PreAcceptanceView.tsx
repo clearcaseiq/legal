@@ -806,6 +806,16 @@ export default function PreAcceptanceView({
               leadId={selectedLead?.id}
               sceneImageUrl={selectedLead?.assessment?.sceneImageUrl || null}
               sceneImageStatus={selectedLead?.assessment?.sceneImageStatus || null}
+              incident={{
+                claimType: claimType || null,
+                when: incidentFacts.date ? incidentWhen : null,
+                where: incidentFacts.location || (location !== 'Venue not provided' ? location : null),
+                parties: Array.isArray(incidentFacts.parties) ? incidentFacts.parties.filter(Boolean).length : null,
+                fault: faultLabel,
+                account: incidentFacts.narrative
+                  ? deidentifyText(String(incidentFacts.narrative), plaintiffNameTokens).trim() || null
+                  : null,
+              }}
             />
           )}
 
@@ -959,6 +969,50 @@ export default function PreAcceptanceView({
 }
 
 const SCENE_NEEDS_DESCRIPTION = 'needs_description'
+const SCENE_UNAVAILABLE = 'unavailable'
+
+type SceneIncident = {
+  claimType: string | null
+  when: string | null
+  where: string | null
+  parties: number | null
+  fault: string | null
+  account: string | null
+}
+
+/** What the intake says about the incident, so the tab is useful with or without a diagram. */
+function IncidentSummaryCard({ incident }: { incident: SceneIncident }) {
+  const rows: Array<[string, string | null]> = [
+    ['Incident type', incident.claimType],
+    ['When', incident.when],
+    ['Where', incident.where],
+    ['Parties involved', incident.parties ? String(incident.parties) : null],
+    ['Alleged fault', incident.fault],
+  ]
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">What the claimant reported</h4>
+      <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3 border-b border-slate-100 pb-1.5 sm:block sm:border-0 sm:pb-0">
+            <dt className="text-xs text-slate-500">{label}</dt>
+            <dd className={value ? 'font-medium text-slate-800' : 'italic text-slate-400'}>{value || 'Not provided'}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <p className="text-xs text-slate-500">How it happened</p>
+        {incident.account ? (
+          <blockquote className="mt-1 whitespace-pre-line border-l-2 border-slate-200 pl-3 text-sm text-slate-700">
+            {incident.account}
+          </blockquote>
+        ) : (
+          <p className="mt-1 text-sm italic text-slate-400">The claimant didn&apos;t describe how the incident happened.</p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 /**
  * Scene tab — shows the AI-generated incident-scene schematic for the lead.
@@ -970,10 +1024,12 @@ function SceneTab({
   leadId,
   sceneImageUrl,
   sceneImageStatus,
+  incident,
 }: {
   leadId?: string
   sceneImageUrl: string | null
   sceneImageStatus: string | null
+  incident: SceneIncident
 }) {
   const [status, setStatus] = useState<string>(sceneImageStatus || (sceneImageUrl ? 'ready' : 'pending'))
   const [fileUrl, setFileUrl] = useState<string | null>(sceneImageUrl)
@@ -1037,7 +1093,7 @@ function SceneTab({
           setFileUrl(url)
           setStatus('ready')
           window.clearInterval(intervalId)
-        } else if (st === 'failed' || st === SCENE_NEEDS_DESCRIPTION) {
+        } else if (st === 'failed' || st === SCENE_NEEDS_DESCRIPTION || st === SCENE_UNAVAILABLE) {
           setStatus(st)
           window.clearInterval(intervalId)
         }
@@ -1072,6 +1128,9 @@ function SceneTab({
     }
   }
 
+  const showImage = Boolean(objectUrl) && status !== 'pending'
+  const canRegenerate = status !== SCENE_NEEDS_DESCRIPTION
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1079,44 +1138,61 @@ function SceneTab({
           <Sparkles className="h-4 w-4 text-brand-600" aria-hidden />
           <h3 className="text-sm font-semibold text-slate-900">Incident reconstruction (AI schematic)</h3>
         </div>
-        <button
-          type="button"
-          onClick={handleRegenerate}
-          disabled={status === 'pending' || !leadId}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${status === 'pending' ? 'animate-spin' : ''}`} />
-          {status === 'pending' ? 'Generating…' : 'Regenerate'}
-        </button>
+        {canRegenerate && (
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            disabled={status === 'pending' || !leadId}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${status === 'pending' ? 'animate-spin' : ''}`} />
+            {status === 'pending' ? 'Generating…' : showImage ? 'Regenerate' : 'Try again'}
+          </button>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-        {objectUrl && status !== 'pending' ? (
+        {showImage ? (
           <img
-            src={objectUrl}
+            src={objectUrl!}
             alt="AI-generated schematic reconstruction of the incident"
             className="mx-auto max-h-[520px] w-full object-contain bg-white"
           />
         ) : status === SCENE_NEEDS_DESCRIPTION ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-            <FileText className="h-8 w-8 text-slate-400" aria-hidden />
-            <p className="text-sm font-medium text-slate-600">An incident description is needed to generate this scene.</p>
-            <p className="max-w-md text-xs text-slate-500">
-              The reconstruction is drawn from how the incident happened — where it took place, which way each party was
-              moving, and the point of impact. Once a description is added to the case, click Regenerate.
-            </p>
+          <div className="flex items-start gap-3 px-4 py-4">
+            <FileText className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+            <div>
+              <p className="text-sm font-medium text-slate-700">No diagram for this case</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                The claimant didn&apos;t describe how the incident happened, so there&apos;s nothing to reconstruct. A
+                diagram is drawn only from their account — where it happened, which way each party was moving, and the
+                point of impact.
+              </p>
+            </div>
+          </div>
+        ) : status === SCENE_UNAVAILABLE ? (
+          <div className="flex items-start gap-3 px-4 py-4">
+            <ImageOff className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+            <div>
+              <p className="text-sm font-medium text-slate-700">Diagram service is unavailable right now</p>
+              <p className="mt-0.5 text-xs text-slate-500">This isn&apos;t a problem with the case. Try again later.</p>
+            </div>
           </div>
         ) : status === 'failed' ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-            <ImageOff className="h-8 w-8 text-slate-400" aria-hidden />
-            <p className="text-sm font-medium text-slate-600">Couldn&apos;t generate a scene diagram for this case.</p>
-            <p className="text-xs text-slate-500">This can happen when the incident description is sparse or the image service is unavailable. Try regenerating.</p>
+          <div className="flex items-start gap-3 px-4 py-4">
+            <ImageOff className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+            <div>
+              <p className="text-sm font-medium text-slate-700">The diagram didn&apos;t generate</p>
+              <p className="mt-0.5 text-xs text-slate-500">The image service didn&apos;t return a picture this time. Try again.</p>
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-            <RefreshCw className="h-7 w-7 animate-spin text-brand-500" aria-hidden />
-            <p className="text-sm font-medium text-slate-600">Generating a schematic diagram of the incident…</p>
-            <p className="text-xs text-slate-500">This usually takes a few seconds. It will appear here automatically.</p>
+          <div className="flex items-center gap-3 px-4 py-4">
+            <RefreshCw className="h-5 w-5 shrink-0 animate-spin text-brand-500" aria-hidden />
+            <div>
+              <p className="text-sm font-medium text-slate-700">Drawing a diagram of the incident…</p>
+              <p className="mt-0.5 text-xs text-slate-500">This usually takes a few seconds. It will appear here automatically.</p>
+            </div>
           </div>
         )}
         {imgLoading && objectUrl && (
@@ -1124,10 +1200,14 @@ function SceneTab({
         )}
       </div>
 
-      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <strong>For context only — not evidence.</strong> This is an AI-generated schematic reconstruction based on the
-        intake description. It may omit or misstate details and should not be relied on as an accurate depiction of the incident.
-      </p>
+      {showImage && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <strong>For context only — not evidence.</strong> This is an AI-generated schematic reconstruction based on the
+          intake description. It may omit or misstate details and should not be relied on as an accurate depiction of the incident.
+        </p>
+      )}
+
+      <IncidentSummaryCard incident={incident} />
     </div>
   )
 }

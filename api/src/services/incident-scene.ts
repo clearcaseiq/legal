@@ -160,6 +160,9 @@ function extractFacts(factsRaw: string | null | undefined) {
 /** Status stored when there is no incident description to reconstruct from. */
 export const SCENE_NEEDS_DESCRIPTION = 'needs_description'
 
+/** Status stored when no image service is configured, so it is retried rather than shown as a case problem. */
+export const SCENE_UNAVAILABLE = 'unavailable'
+
 const MIN_SCENE_DESCRIPTION_CHARS = 15
 
 /**
@@ -218,13 +221,13 @@ export async function generateSceneImageForAssessment(
       return { ok: false, status: SCENE_NEEDS_DESCRIPTION, reason: 'no_incident_description' }
     }
 
-    if (!openai) {
+    if (!openai || !imageClient) {
       await prisma.assessment.update({
         where: { id: assessmentId },
-        data: { sceneImageStatus: 'failed' },
+        data: { sceneImageStatus: SCENE_UNAVAILABLE },
       }).catch(() => {})
       logger.warn('Scene image skipped — OpenAI API key not configured', { assessmentId })
-      return { ok: false, status: 'failed', reason: 'openai_not_configured' }
+      return { ok: false, status: SCENE_UNAVAILABLE, reason: 'openai_not_configured' }
     }
 
     // Mark as pending so the UI can show a "generating…" state.
@@ -261,9 +264,6 @@ export async function generateSceneImageForAssessment(
       subject,
     })
 
-    if (!imageClient) {
-      return { ok: false, status: 'failed', reason: 'image_not_configured' }
-    }
     const result = await imageClient.images.generate({
       model: SCENE_IMAGE_MODEL,
       prompt,

@@ -18854,10 +18854,10 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
     // Backfill: older leads created before the scene feature (or with no image yet)
     // get one generated on first open (non-blocking). Reflect that as "pending".
     let sceneImageStatus = (assessment as any)?.sceneImageStatus ?? null
-    if (assessment && !assessment.sceneImageUrl && sceneImageStatus !== 'pending' && sceneImageStatus !== 'failed') {
+    if (assessment && !assessment.sceneImageUrl && sceneImageStatus !== 'pending') {
       if (!hasSceneDescription(assessment.facts)) {
         sceneImageStatus = SCENE_NEEDS_DESCRIPTION
-      } else {
+      } else if (sceneImageStatus !== 'failed') {
         sceneImageStatus = 'pending'
         void generateSceneImageForAssessment(assessment.id).catch(() => {})
       }
