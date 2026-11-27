@@ -7,9 +7,15 @@ import {
   getFilteredAttorneyLeads,
   getLeadInvoices,
   getLeadPayments,
+  getCaseTime,
+  getLeadExpenses,
   type BillingInvoice,
   type BillingPayment,
+  type CaseExpense,
+  type CaseTimeEntry,
+  type CaseTimeResponse,
 } from '../../src/lib/api'
+import { BillingEntrySheet, type BillingEntryKind } from '../../src/components/BillingEntrySheet'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
@@ -23,6 +29,15 @@ function formatCurrency(amount?: number | null) {
 type BillingRow =
   | ({ rowType: 'invoice' } & BillingInvoice)
   | ({ rowType: 'payment' } & BillingPayment)
+  | ({ rowType: 'time' } & CaseTimeEntry)
+  | ({ rowType: 'expense' } & CaseExpense)
+
+function rowDate(row: BillingRow) {
+  if (row.rowType === 'invoice') return row.createdAt
+  if (row.rowType === 'payment') return row.receivedAt
+  if (row.rowType === 'time') return row.workDate
+  return row.incurredAt || row.createdAt
+}
 
 export default function BillingScreen() {
   // Invoices and payments hang off a case, so this screen needs one. Reached
@@ -38,6 +53,9 @@ export default function BillingScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [time, setTime] = useState<CaseTimeResponse | null>(null)
+  const [expenses, setExpenses] = useState<CaseExpense[]>([])
+  const [entryKind, setEntryKind] = useState<BillingEntryKind | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -54,15 +72,22 @@ export default function BillingScreen() {
         )
         return
       }
-      const [invoiceData, paymentData] = await Promise.all([
+      const [invoiceData, paymentData, timeData, expenseData] = await Promise.all([
         getLeadInvoices(scopedLeadId),
         getLeadPayments(scopedLeadId),
+        // Firms without time tracking (or staff without access) still see invoices.
+        getCaseTime(scopedLeadId).catch(() => null),
+        getLeadExpenses(scopedLeadId).catch(() => []),
       ])
       setInvoices(Array.isArray(invoiceData) ? invoiceData : [])
       setPayments(Array.isArray(paymentData) ? paymentData : [])
+      setTime(timeData)
+      setExpenses(expenseData)
     } catch (err: unknown) {
       setInvoices([])
       setPayments([])
+      setTime(null)
+      setExpenses([])
       setLeads([])
       setLoadError(getApiErrorMessage(err))
     } finally {
@@ -84,20 +109,20 @@ export default function BillingScreen() {
       invoiceTotal,
       paymentsTotal,
       outstanding: Math.max(0, invoiceTotal - paymentsTotal),
+      hours: Number(time?.totals?.totalHours || 0),
+      costs: expenses.reduce((sum, row) => sum + Number(row.amount || 0), 0),
     }
-  }, [invoices, payments])
+  }, [invoices, payments, time, expenses])
 
   const rows = useMemo<BillingRow[]>(() => {
     const merged: BillingRow[] = [
       ...invoices.map((row) => ({ ...row, rowType: 'invoice' as const })),
       ...payments.map((row) => ({ ...row, rowType: 'payment' as const })),
+      ...(time?.entries || []).map((row) => ({ ...row, rowType: 'time' as const })),
+      ...expenses.map((row) => ({ ...row, rowType: 'expense' as const })),
     ]
-    return merged.sort((a, b) => {
-      const aDate = new Date(a.rowType === 'invoice' ? a.createdAt : a.receivedAt).getTime()
-      const bDate = new Date(b.rowType === 'invoice' ? b.createdAt : b.receivedAt).getTime()
-      return bDate - aDate
-    })
-  }, [invoices, payments])
+    return merged.sort((a, b) => new Date(rowDate(b)).getTime() - new Date(rowDate(a)).getTime())
+  }, [invoices, payments, time, expenses])
 
   if (loading) {
     return (
@@ -192,8 +217,31 @@ export default function BillingScreen() {
       </View>
       <View style={[styles.summaryRow, { marginTop: 0 }]}>
         <SummaryTile label="Outstanding" value={formatCurrency(totals.outstanding)} icon="wallet-outline" tint={colors.warning} />
+        <SummaryTile label="Hours logged" value={totals.hours.toFixed(1)} icon="time-outline" />
+      </View>
+      <View style={[styles.summaryRow, { marginTop: 0 }]}>
+        <SummaryTile label="Case costs" value={formatCurrency(totals.costs)} icon="pricetag-outline" />
         <SummaryTile label="Entries" value={String(rows.length)} icon="list-outline" />
       </View>
+
+      <View style={styles.actionsRow}>
+        {time?.canLog !== false && (
+          <ActionButton icon="time-outline" label="Log time" onPress={() => setEntryKind('time')} />
+        )}
+        <ActionButton icon="pricetag-outline" label="Add cost" onPress={() => setEntryKind('expense')} />
+        <ActionButton icon="receipt-outline" label="Invoice" onPress={() => setEntryKind('invoice')} />
+      </View>
+
+      <BillingEntrySheet
+        kind={entryKind}
+        leadId={scopedLeadId}
+        activityTypes={time?.activityTypes || []}
+        onClose={() => setEntryKind(null)}
+        onSaved={() => {
+          setEntryKind(null)
+          void load()
+        }}
+      />
 
       <FlatList
         data={rows}
@@ -203,6 +251,32 @@ export default function BillingScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load() }} />
         }
         renderItem={({ item }) => {
+          if (item.rowType === 'time' || item.rowType === 'expense') {
+            const isTime = item.rowType === 'time'
+            const label = isTime
+              ? (time?.activityTypes || []).find((a) => a.value === item.activityType)?.label || item.activityType
+              : item.description
+            return (
+              <View style={styles.card}>
+                <View style={styles.cardTop}>
+                  <View style={[styles.badge, styles.badgeNeutral]}>
+                    <Text style={styles.badgeText}>{isTime ? 'Time' : 'Cost'}</Text>
+                  </View>
+                  <Text style={styles.amount}>
+                    {isTime ? `${Number(item.hours || 0).toFixed(2)} h` : formatCurrency(item.amount)}
+                  </Text>
+                </View>
+                <Text style={styles.title}>{label}</Text>
+                <Text style={styles.meta}>
+                  {new Date(rowDate(item)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {isTime && item.workerName ? ` · ${item.workerName}` : ''}
+                  {isTime && item.amount ? ` · ${formatCurrency(item.amount)}` : ''}
+                  {isTime && !item.billable ? ' · Non-billable' : ''}
+                </Text>
+                {isTime && item.description ? <Text style={styles.note}>{item.description}</Text> : null}
+              </View>
+            )
+          }
           const isInvoice = item.rowType === 'invoice'
           const primaryDate = isInvoice ? item.dueDate || item.createdAt : item.receivedAt
           return (
@@ -234,11 +308,28 @@ export default function BillingScreen() {
           <View style={styles.empty}>
             <Ionicons name="card-outline" size={48} color={colors.muted} />
             <Text style={styles.emptyTitle}>No billing activity yet</Text>
-            <Text style={styles.emptySub}>Invoices and payments recorded on this case will appear here.</Text>
+            <Text style={styles.emptySub}>Time, costs, invoices and payments recorded on this case will appear here.</Text>
           </View>
         }
       />
     </View>
+  )
+}
+
+function ActionButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  label: string
+  onPress: () => void
+}) {
+  return (
+    <TouchableOpacity style={styles.actionButton} onPress={onPress} activeOpacity={0.85} accessibilityRole="button">
+      <Ionicons name={icon} size={16} color={colors.primaryDark} />
+      <Text style={styles.actionText}>{label}</Text>
+    </TouchableOpacity>
   )
 }
 
@@ -293,6 +384,21 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.sm },
   badgeInvoice: { backgroundColor: colors.primary + '14' },
   badgePayment: { backgroundColor: colors.successMuted },
+  badgeNeutral: { backgroundColor: colors.surface },
+  actionsRow: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, marginBottom: space.md },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 44,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '55',
+    backgroundColor: colors.primary + '10',
+  },
+  actionText: { fontSize: 13, fontWeight: '800', color: colors.primaryDark },
   badgeText: { fontSize: 12, fontWeight: '800', color: colors.text },
   amount: { fontSize: 18, fontWeight: '800', color: colors.text },
   title: { fontSize: 16, fontWeight: '700', color: colors.text },

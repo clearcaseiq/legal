@@ -11,6 +11,9 @@ export default function PaymentSuccess() {
   // Set when firm staff accepted for the routed attorney from the Firm dashboard.
   const onBehalfOf = searchParams.get('onBehalfOf') || undefined
   const fromFirm = searchParams.get('returnTo') === 'firm'
+  // The attorney app finishes the accept itself when the attorney returns to it,
+  // and this browser is usually not signed in, so the page only confirms payment.
+  const fromApp = searchParams.get('source') === 'app'
   const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'accepting' | 'accepted' | 'failed'>('idle')
   const [acceptanceError, setAcceptanceError] = useState<string | null>(null)
   const [feeRefunded, setFeeRefunded] = useState(false)
@@ -24,7 +27,7 @@ export default function PaymentSuccess() {
   const backToLeadsPath = fromFirm ? '/firm-dashboard?tab=newleads' : '/attorney-dashboard/leadgen/matches'
 
   useEffect(() => {
-    if (type !== 'routing_fee' || !leadId) return
+    if (type !== 'routing_fee' || !leadId || fromApp) return
 
     let cancelled = false
     const acceptanceKey = `caseiq:routing-fee-accepted:${leadId}:${sessionId || 'latest'}`
@@ -64,7 +67,7 @@ export default function PaymentSuccess() {
     return () => {
       cancelled = true
     }
-  }, [leadId, sessionId, type, onBehalfOf])
+  }, [leadId, sessionId, type, onBehalfOf, fromApp])
 
   // Once the routing fee is paid and the case is accepted, drop the attorney
   // straight into the Case Workspace rather than leaving them on this receipt
@@ -91,7 +94,23 @@ export default function PaymentSuccess() {
             : 'rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-emerald-950 shadow-sm'
         }
       >
-        {acceptanceFailed ? (
+        {fromApp && type === 'routing_fee' ? (
+          <>
+            <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Payment received</p>
+            <h1 className="mt-2 text-3xl font-bold">Return to the app to finish accepting.</h1>
+            <p className="mt-3 text-sm text-emerald-800">
+              Go back to the ClearCaseIQ Attorney app. It will finish accepting the case as soon as you return.
+            </p>
+            {leadId && (
+              <a
+                href={`caseiq://lead/${encodeURIComponent(leadId)}?paid=1`}
+                className="btn-primary mt-6 inline-flex"
+              >
+                Open the app
+              </a>
+            )}
+          </>
+        ) : acceptanceFailed ? (
           <>
             <p className="text-sm font-semibold uppercase tracking-wide text-amber-700">
               Payment received — case not assigned
@@ -138,7 +157,7 @@ export default function PaymentSuccess() {
             Stripe session: {sessionId}
           </p>
         )}
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className={`mt-6 flex flex-wrap gap-3 ${fromApp && type === 'routing_fee' ? 'hidden' : ''}`}>
           {acceptanceFailed ? (
             <Link to={backToLeadsPath} className="btn-primary">
               {fromFirm ? 'Back to New leads' : 'Back to New Matches'}

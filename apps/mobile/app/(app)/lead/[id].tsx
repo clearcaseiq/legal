@@ -11,6 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  Alert,
+  AppState,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -19,6 +21,12 @@ import { Ionicons } from '@expo/vector-icons'
 import {
   getLeadDetails,
   getApiErrorMessage,
+  getApiErrorCode,
+  fetchAttorneyAgreement,
+  fetchAttorneyAgreementStatus,
+  acceptAttorneyAgreement,
+  createRoutingFeePaymentSession,
+  type AttorneyAgreement,
   getResponseSlaHours,
   getLeadEvidenceFiles,
   getLeadQuality,
@@ -52,6 +60,16 @@ import { describeStageUnlock, isAiTask } from '../../../src/lib/caseTasks'
 import { DECLINE_REASONS, type DeclineReasonCode } from '../../../src/constants/declineReasons'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 import { formatClaimType, formatLifecycleState, formatStatus, leadLabel, parseFacts } from '../../../src/lib/formatLead'
+import { webLink } from '../../../src/lib/legalLinks'
+import { InsuranceReviewCard, MedicalReviewCard, SceneDiagramCard } from '../../../src/components/CaseReviewCards'
+
+type AcceptOptions = {
+  conflictAcknowledged?: boolean
+  /** Retrying after the attorney returned from the case-fee checkout. */
+  resumed?: boolean
+  /** The fee session came back settled without a checkout, so a second fee refusal is real. */
+  feeSettled?: boolean
+}
 
 const PIPELINE_STATUSES = [
   { value: 'contacted', label: 'Contacted' },
@@ -75,7 +93,7 @@ const NEGOTIATION_TYPES = [
 
 export default function LeadDetailScreen() {
   const insets = useSafeAreaInsets()
-  const { id, action } = useLocalSearchParams<{ id: string; action?: string }>()
+  const { id, action, paid } = useLocalSearchParams<{ id: string; action?: string; paid?: string }>()
   const { data: dashboardData, refresh: refreshDashboard } = useAttorneyDashboardData()
   const hasFocusedOnceRef = useRef(false)
   const [lead, setLead] = useState<any>(null)
@@ -107,6 +125,13 @@ export default function LeadDetailScreen() {
   const [negotiationType, setNegotiationType] = useState<(typeof NEGOTIATION_TYPES)[number]['value']>('offer')
   const [negotiationAmount, setNegotiationAmount] = useState('')
   const [negotiationNotes, setNegotiationNotes] = useState('')
+  const [agreementDoc, setAgreementDoc] = useState<AttorneyAgreement | null>(null)
+  const [agreementBusy, setAgreementBusy] = useState(false)
+  const [feeCheckoutUrl, setFeeCheckoutUrl] = useState<string | null>(null)
+  const acceptOptsRef = useRef<AcceptOptions>({})
+  const acceptInFlightRef = useRef(false)
+  const awaitingFeeRef = useRef(false)
+  const handleAcceptRef = useRef<(opts?: AcceptOptions) => Promise<void>>(async () => {})
 
   const loadLead = useCallback(async () => {
     if (!id) return
@@ -164,6 +189,24 @@ export default function LeadDetailScreen() {
   useEffect(() => {
     void getResponseSlaHours().then(setSlaHours)
   }, [])
+
+  // Coming back from the case-fee checkout in the browser: finish the accept.
+  // The server confirms the payment with Stripe, so an unpaid return just
+  // leaves the "finish payment" prompt in place.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && awaitingFeeRef.current) void handleAcceptRef.current({ resumed: true })
+    })
+    return () => sub.remove()
+  }, [])
+
+  const paidDeepLinkHandledRef = useRef(false)
+  useEffect(() => {
+    if (paid === '1' && lead && !paidDeepLinkHandledRef.current) {
+      paidDeepLinkHandledRef.current = true
+      void handleAcceptRef.current({ resumed: true })
+    }
+  }, [paid, lead])
 
   // Deep-linked from a "Decline" push action button: open the reason picker once.
   const declineDeepLinkHandledRef = useRef(false)
@@ -531,13 +574,92 @@ export default function LeadDetailScreen() {
     }
   }
 
-  async function handleAccept() {
-    if (!id) return
+  /**
+   * Resolve a refused accept the way the web does. The server checks, in order,
+   * the participation agreement, the conflict flag, and the case fee, and names
+   * each refusal with a code. 'retry' means the obstacle is cleared and the
+   * accept can go again straight away; 'handled' means the attorney has to act
+   * first (sign, acknowledge, or pay).
+   */
+  async function resolveAcceptRefusal(err: unknown, opts: AcceptOptions): Promise<'retry' | 'handled' | 'unhandled'> {
+    if (!id) return 'unhandled'
+    const code = getApiErrorCode(err)
+    if (code === 'CONFLICT_ACK_REQUIRED') {
+      setAcceptOpen(false)
+      Alert.alert(
+        'Possible conflict flagged',
+        'The preliminary conflict check flagged this case. Review it before accepting — accepting confirms you have reviewed the flag.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Acknowledge and accept', onPress: () => void handleAccept({ ...opts, conflictAcknowledged: true }) },
+        ]
+      )
+      return 'handled'
+    }
+    if (code === 'AGREEMENT_REQUIRED') {
+      // Staff accepting for another attorney can't sign on their behalf; the
+      // server's message names who has to.
+      const status = await fetchAttorneyAgreementStatus().catch(() => null)
+      if (!status || status.accepted) return 'unhandled'
+      const doc = await fetchAttorneyAgreement().catch(() => null)
+      if (!doc) return 'unhandled'
+      setAcceptOpen(false)
+      setAgreementDoc(doc)
+      return 'handled'
+    }
+    if (code === 'ROUTING_FEE_REQUIRED') {
+      if (opts.resumed && feeCheckoutUrl) {
+        setDecisionError('The case fee payment hasn’t gone through yet. Finish paying, then tap “I’ve paid”.')
+        return 'handled'
+      }
+      const session = await createRoutingFeePaymentSession({
+        leadId: id,
+        successUrl: webLink(
+          `/payment/success?type=routing_fee&source=app&leadId=${encodeURIComponent(id)}&session_id={CHECKOUT_SESSION_ID}`
+        ),
+        cancelUrl: webLink(`/payment/cancel?type=routing_fee&leadId=${encodeURIComponent(id)}`),
+      })
+      // No checkout means a subscription credit covered it or the fee is waived.
+      if (!session.checkoutUrl) return opts.feeSettled ? 'unhandled' : 'retry'
+      setAcceptOpen(false)
+      awaitingFeeRef.current = true
+      setFeeCheckoutUrl(session.checkoutUrl)
+      await Linking.openURL(session.checkoutUrl).catch(() => {})
+      return 'handled'
+    }
+    return 'unhandled'
+  }
+
+  async function handleAccept(requested?: AcceptOptions) {
+    if (!id || acceptInFlightRef.current) return
+    let opts = { ...acceptOptsRef.current, ...requested }
+    acceptOptsRef.current = opts
+    acceptInFlightRef.current = true
     setDeciding(true)
     setDecisionError(null)
     setDecisionNotice(null)
     try {
-      const { queued } = await runOrQueue({ type: 'lead_decision', payload: { leadId: id, decision: 'accept' } })
+      let queued = false
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          ;({ queued } = await runOrQueue({
+            type: 'lead_decision',
+            payload: { leadId: id, decision: 'accept', conflictAcknowledged: opts.conflictAcknowledged },
+          }))
+          break
+        } catch (err: unknown) {
+          const outcome = attempt < 2 ? await resolveAcceptRefusal(err, opts) : 'unhandled'
+          if (outcome === 'retry') {
+            opts = { ...opts, feeSettled: true }
+            continue
+          }
+          if (outcome === 'unhandled') setDecisionError(getApiErrorMessage(err))
+          return
+        }
+      }
+      awaitingFeeRef.current = false
+      acceptOptsRef.current = {}
+      setFeeCheckoutUrl(null)
       if (!queued) await refreshDashboard({ force: true, silent: true })
       setLead((current: any) => (current ? { ...current, status: 'ACCEPTED', lifecycleState: 'attorney_matched' } : current))
       setAcceptOpen(false)
@@ -554,7 +676,25 @@ export default function LeadDetailScreen() {
     } catch (err: unknown) {
       setDecisionError(getApiErrorMessage(err))
     } finally {
+      acceptInFlightRef.current = false
       setDeciding(false)
+    }
+  }
+
+  handleAcceptRef.current = handleAccept
+
+  async function signAgreementAndAccept() {
+    if (!agreementDoc) return
+    setAgreementBusy(true)
+    try {
+      await acceptAttorneyAgreement(agreementDoc.version)
+      setAgreementDoc(null)
+      void handleAccept()
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+      setAgreementDoc(null)
+    } finally {
+      setAgreementBusy(false)
     }
   }
 
@@ -711,6 +851,22 @@ export default function LeadDetailScreen() {
           >
             <Ionicons name="folder-outline" size={18} color={colors.primary} />
             <Text style={styles.quickLinkText}>Files</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.quickLink}
+            onPress={() => id && router.push({ pathname: '/(app)/case-ai', params: { leadId: id } })}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+            <Text style={styles.quickLinkText}>AI Copilot</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.quickLink}
+            onPress={() => id && router.push({ pathname: '/(app)/case-ai', params: { leadId: id, tab: 'rose' } })}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="hardware-chip-outline" size={18} color={colors.primary} />
+            <Text style={styles.quickLinkText}>Rose</Text>
           </TouchableOpacity>
         </View>
         ) : canDecide ? (
@@ -1138,12 +1294,54 @@ export default function LeadDetailScreen() {
           )}
         </View>
 
-        {narrative ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Summary</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>What the claimant reported</Text>
+          <InfoLine label="Incident type" value={formatClaimType(assessment.claimType) || 'Not provided'} />
+          <InfoLine
+            label="When"
+            value={[facts?.incident?.date, facts?.incident?.time].filter(Boolean).join(' · ') || 'Not provided'}
+          />
+          <InfoLine label="Where" value={facts?.incident?.location || (venueText !== '—' ? venueText : 'Not provided')} />
+          <InfoLine
+            label="Parties involved"
+            value={
+              Array.isArray(facts?.incident?.parties) && facts.incident.parties.filter(Boolean).length
+                ? String(facts.incident.parties.filter(Boolean).length)
+                : 'Not provided'
+            }
+          />
+          <InfoLine
+            label="Alleged fault"
+            value={
+              facts?.liability?.fault
+                ? String(facts.liability.fault).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                : 'Not provided'
+            }
+          />
+          <Text style={styles.reportedLabel}>How it happened</Text>
+          {narrative ? (
             <Text style={styles.narrative}>{narrative}</Text>
-          </View>
+          ) : (
+            <Text style={styles.reportedMissing}>The claimant didn&apos;t describe how the incident happened.</Text>
+          )}
+        </View>
+
+        {id ? (
+          <SceneDiagramCard
+            key={id}
+            leadId={id}
+            sceneImageUrl={assessment.sceneImageUrl || null}
+            sceneImageStatus={assessment.sceneImageStatus || null}
+          />
         ) : null}
+        <MedicalReviewCard
+          facts={facts}
+          medicalSharing={assessment.medicalSharing}
+          hasMedicalFiles={evidenceFiles.some((f) =>
+            ['medical', 'medical_records', 'bills', 'medical_bill'].includes(String(f.category || ''))
+          )}
+        />
+        <InsuranceReviewCard facts={facts} />
 
         {!canDecide && (
           <View style={styles.infoBanner}>
@@ -1155,7 +1353,39 @@ export default function LeadDetailScreen() {
         )}
       </ScrollView>
 
-      {canDecide && (
+      {canDecide && feeCheckoutUrl && (
+        <View style={[styles.feePanel, { paddingBottom: space.lg + insets.bottom }]}>
+          <Text style={styles.feePanelTitle}>Finish paying the case fee</Text>
+          <Text style={styles.feePanelText}>
+            Complete the payment in your browser. When you come back, the case is accepted automatically.
+          </Text>
+          <View style={styles.modalButtons}>
+            <TouchableOpacity style={styles.modalCancel} onPress={() => void openExternal(feeCheckoutUrl)} disabled={deciding}>
+              <Text style={styles.modalCancelText}>Open payment</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalAccept, deciding && styles.modalSubmitDisabled]}
+              onPress={() => void handleAccept({ resumed: true })}
+              disabled={deciding}
+            >
+              {deciding ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>I’ve paid</Text>}
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            onPress={() => {
+              awaitingFeeRef.current = false
+              acceptOptsRef.current = {}
+              setFeeCheckoutUrl(null)
+              setDecisionError(null)
+            }}
+            disabled={deciding}
+          >
+            <Text style={styles.feePanelCancel}>Cancel accepting</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {canDecide && !feeCheckoutUrl && (
         <View style={[styles.footerActions, { paddingBottom: space.lg + insets.bottom }]}>
           <TouchableOpacity
             style={[styles.cta, styles.ctaSecondary]}
@@ -1209,7 +1439,7 @@ export default function LeadDetailScreen() {
               <TouchableOpacity style={styles.modalCancel} onPress={() => setAcceptOpen(false)} disabled={deciding}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalAccept, deciding && styles.modalSubmitDisabled]} onPress={handleAccept} disabled={deciding}>
+              <TouchableOpacity style={[styles.modalAccept, deciding && styles.modalSubmitDisabled]} onPress={() => void handleAccept()} disabled={deciding}>
                 {deciding ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
@@ -1219,6 +1449,35 @@ export default function LeadDetailScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={Boolean(agreementDoc)} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>{agreementDoc?.title || 'Attorney Participation Agreement'}</Text>
+            <Text style={styles.modalSub}>Accept the agreement once to start accepting cases.</Text>
+            <ScrollView style={styles.reasonList}>
+              {(agreementDoc?.sections || []).map((section) => (
+                <View key={section.heading} style={styles.agreementSection}>
+                  <Text style={styles.agreementHeading}>{section.heading}</Text>
+                  <Text style={styles.agreementBody}>{section.body}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setAgreementDoc(null)} disabled={agreementBusy}>
+                <Text style={styles.modalCancelText}>Not now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalAccept, agreementBusy && styles.modalSubmitDisabled]}
+                onPress={() => void signAgreementAndAccept()}
+                disabled={agreementBusy}
+              >
+                {agreementBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>I agree</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       <Modal visible={declineOpen} animationType="slide" transparent>
@@ -1702,6 +1961,8 @@ const styles = StyleSheet.create({
   signalTitle: { fontSize: 12, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   signalText: { fontSize: 14, color: colors.text, lineHeight: 21, marginTop: 3 },
   narrative: { fontSize: 15, lineHeight: 22, color: colors.text },
+  reportedLabel: { fontSize: 12, color: colors.textSecondary, marginTop: space.md, marginBottom: space.xs },
+  reportedMissing: { fontSize: 14, fontStyle: 'italic', color: colors.muted },
   emptyEvidenceText: { fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
   fileRow: {
     flexDirection: 'row',
@@ -1810,6 +2071,24 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     ...shadows.soft,
   },
+  feePanel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    gap: space.sm,
+    padding: space.lg,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    ...shadows.soft,
+  },
+  feePanelTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  feePanelText: { fontSize: 14, lineHeight: 20, color: colors.textSecondary },
+  feePanelCancel: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', paddingTop: space.xs },
+  agreementSection: { marginBottom: space.md },
+  agreementHeading: { fontSize: 14, fontWeight: '700', color: colors.text, marginBottom: space.xs },
+  agreementBody: { fontSize: 14, lineHeight: 20, color: colors.textSecondary },
   cta: { flex: 1, borderRadius: radii.lg, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
   ctaPrimary: { backgroundColor: colors.success, shadowColor: colors.success, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
   ctaPrimaryText: { color: '#fff', fontSize: 17, fontWeight: '800' },

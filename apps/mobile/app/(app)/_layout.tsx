@@ -144,6 +144,16 @@ export default function AppLayout() {
             }}
           />
           <Stack.Screen
+            name="case-ai"
+            options={{
+              headerShown: true,
+              title: 'Case AI',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
             name="files"
             options={{
               headerShown: true,

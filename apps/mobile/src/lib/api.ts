@@ -436,14 +436,60 @@ export async function decideLead(
   leadId: string,
   decision: 'accept' | 'reject',
   notes?: string,
-  declineReason?: string
+  declineReason?: string,
+  opts?: { conflictAcknowledged?: boolean }
 ) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/decision`, {
     decision,
     notes,
     declineReason,
+    ...(opts?.conflictAcknowledged ? { conflictAcknowledged: true } : {}),
   })
   return data
+}
+
+/** Bearer header for requests made outside axios, such as an authenticated image. */
+export async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await SecureStore.getItemAsync('auth_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+/** Kicks off a new scene diagram; the image appears on a later lead fetch. */
+export async function regenerateLeadSceneImage(leadId: string): Promise<{ status: string }> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/scene/regenerate`)
+  return data
+}
+
+/** The server's refusal code on an API error, e.g. ROUTING_FEE_REQUIRED. */
+export function getApiErrorCode(err: unknown): string | null {
+  const code = (err as { response?: { data?: { code?: unknown } } })?.response?.data?.code
+  return typeof code === 'string' ? code : null
+}
+
+export type AttorneyAgreement = {
+  version: string
+  title: string
+  effectiveDate: string
+  sections: Array<{ heading: string; body: string }>
+}
+
+export async function fetchAttorneyAgreement(): Promise<AttorneyAgreement> {
+  const { data } = await api.get('/v1/attorney-agreement')
+  return data
+}
+
+export async function fetchAttorneyAgreementStatus(): Promise<{ version: string; accepted: boolean }> {
+  const { data } = await api.get('/v1/attorney-agreement/status')
+  return data
+}
+
+export async function acceptAttorneyAgreement(version: string): Promise<void> {
+  await api.post('/v1/attorney-agreement/accept', { version })
+}
+
+export async function createRoutingFeePaymentSession(payload: { leadId: string; successUrl?: string; cancelUrl?: string }) {
+  const { data } = await api.post('/v1/payments/platform/routing-fee-session', payload)
+  return data as { status: string; amount?: number; checkoutUrl?: string; sessionId?: string }
 }
 
 export async function getLeadDetails(leadId: string) {
@@ -861,6 +907,41 @@ export async function getLeadCommandCenter(leadId: string) {
   return data
 }
 
+export type CopilotTurn = { question: string; answer: string }
+
+export async function askCaseCopilot(leadId: string, question: string, history: CopilotTurn[] = []) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/command-center/copilot`, {
+    question,
+    history: history.slice(-6),
+  })
+  return data as { answer: string; sources?: Array<{ label: string; detail: string }> }
+}
+
+export type CoachInsight = {
+  key: string
+  title: string
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  why: string
+  impact: string
+}
+
+export type CaseCoach = {
+  headline: string
+  insights: CoachInsight[]
+  generatedAt: string
+}
+
+/** Runs Rose on the case: refreshes the coach feed and raises next tasks. */
+export async function getCaseCoach(leadId: string): Promise<CaseCoach> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/coach`)
+  return data.coach
+}
+
+export async function approveAllLeadTasks(leadId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/approve-all`)
+  return data as { ok: boolean; approved: number }
+}
+
 export async function createLeadContact(
   leadId: string,
   payload: { contactType: 'call' | 'sms' | 'email' | 'chat' | 'consult' | 'document_request'; contactMethod?: string; scheduledAt?: string; notes?: string }
@@ -1196,4 +1277,66 @@ export async function getLeadInvoices(leadId: string): Promise<BillingInvoice[]>
 export async function getLeadPayments(leadId: string): Promise<BillingPayment[]> {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/payments`)
   return Array.isArray(data) ? data : []
+}
+
+export async function createLeadInvoice(
+  leadId: string,
+  payload: { invoiceNumber?: string; amount: number; dueDate?: string; notes?: string }
+): Promise<BillingInvoice> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/invoices`, { ...payload, status: 'open' })
+  return data
+}
+
+export type CaseTimeEntry = {
+  id: string
+  workDate: string
+  hours: number
+  activityType: string
+  description: string | null
+  billable: boolean
+  amount: number | null
+  workerName: string | null
+  createdAt: string
+}
+
+export type CaseTimeResponse = {
+  entries: CaseTimeEntry[]
+  canLog: boolean
+  activityTypes: Array<{ value: string; label: string }>
+  totals: { totalHours: number; billableAmount: number; entryCount: number }
+}
+
+export async function getCaseTime(leadId: string): Promise<CaseTimeResponse> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/time`)
+  return data
+}
+
+export async function createCaseTime(
+  leadId: string,
+  payload: { hours: number; activityType?: string; description?: string; billable?: boolean; workDate?: string }
+): Promise<CaseTimeEntry> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/time`, payload)
+  return data
+}
+
+export type CaseExpense = {
+  id: string
+  category: string
+  description: string
+  amount: number
+  incurredAt: string | null
+  createdAt: string
+}
+
+export async function getLeadExpenses(leadId: string): Promise<CaseExpense[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/expenses`)
+  return Array.isArray(data) ? data : []
+}
+
+export async function createLeadExpense(
+  leadId: string,
+  payload: { category: string; description: string; amount: number; incurredAt?: string }
+): Promise<CaseExpense> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/expenses`, payload)
+  return data
 }

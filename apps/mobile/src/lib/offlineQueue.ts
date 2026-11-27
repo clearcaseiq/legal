@@ -46,7 +46,13 @@ export type QueuedAction =
       type: 'lead_decision'
       createdAt: number
       attempts: number
-      payload: { leadId: string; decision: 'accept' | 'reject'; notes?: string; declineReason?: string }
+      payload: {
+        leadId: string
+        decision: 'accept' | 'reject'
+        notes?: string
+        declineReason?: string
+        conflictAcknowledged?: boolean
+      }
     }
   | {
       id: string
@@ -155,7 +161,9 @@ async function enqueue(action: Omit<QueuedAction, 'id' | 'createdAt' | 'attempts
 async function executeAction(action: QueuedAction): Promise<void> {
   switch (action.type) {
     case 'lead_decision':
-      await decideLead(action.payload.leadId, action.payload.decision, action.payload.notes, action.payload.declineReason)
+      await decideLead(action.payload.leadId, action.payload.decision, action.payload.notes, action.payload.declineReason, {
+        conflictAcknowledged: action.payload.conflictAcknowledged,
+      })
       return
     case 'attorney_message':
       await sendAttorneyMessage(action.payload.chatRoomId, action.payload.content)
