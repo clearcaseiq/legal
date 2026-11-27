@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, RequestCaseSubmitOtp, SubmitCaseForReview } from '../lib/validators'
 import { consumeCaseSubmitOtp, isCaseSubmitOtpRequired, issueCaseSubmitOtp, verifyCaseSubmitOtp } from '../lib/case-submit-otp'
 import { CAPTCHA_FAILED_RESPONSE, captchaTokenFrom, verifyTurnstile } from '../lib/turnstile'
-import { findRecentSubmittedCaseForContact } from '../lib/contact-duplicates'
+import { findRecentSubmittedCaseForContact, incidentDateFromFacts } from '../lib/contact-duplicates'
 import { logger } from '../lib/logger'
 import { caseOriginFromIp } from '../lib/case-origin'
 import {
@@ -1714,6 +1714,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         email: email || claimant?.email || null,
         phone: phone || null,
         claimType: assessment.claimType,
+        incidentDate: incidentDateFromFacts(assessment.facts),
         excludeAssessmentId: id,
       })
       if (earlier) {

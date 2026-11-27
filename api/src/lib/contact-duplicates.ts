@@ -103,12 +103,15 @@ export const SUBMITTED_CASE_WINDOW_DAYS = 30
  * an anonymous caller may learn.
  *
  * Same claim type only: one person with a car accident and a dog bite has two
- * cases, not a duplicate.
+ * cases, not a duplicate. Same incident date too: two crashes a week apart are
+ * two cases. A case with no date on either side still counts, since there is
+ * nothing to tell them apart.
  */
 export async function findRecentSubmittedCaseForContact(params: {
   email?: string | null
   phone?: string | null
   claimType: string
+  incidentDate?: string | null
   excludeAssessmentId: string
 }): Promise<{ assessmentId: string } | null> {
   const userIds = new Set<string>()
@@ -123,7 +126,7 @@ export async function findRecentSubmittedCaseForContact(params: {
   }
   if (!userIds.size) return null
 
-  return prisma.leadSubmission.findFirst({
+  const candidates = await prisma.leadSubmission.findMany({
     where: {
       assessmentId: { not: params.excludeAssessmentId },
       sourceType: 'plaintiff',
@@ -131,6 +134,30 @@ export async function findRecentSubmittedCaseForContact(params: {
       assessment: { userId: { in: [...userIds] }, claimType: params.claimType },
     },
     orderBy: { submittedAt: 'desc' },
-    select: { assessmentId: true },
+    take: 20,
+    select: { assessmentId: true, assessment: { select: { facts: true } } },
   })
+  const wanted = incidentDay(params.incidentDate)
+  const match = candidates.find((candidate) => {
+    if (!wanted) return true
+    const theirs = incidentDay(incidentDateFromFacts(candidate.assessment?.facts))
+    return !theirs || theirs === wanted
+  })
+  return match ? { assessmentId: match.assessmentId } : null
+}
+
+/** The calendar day of an incident date, so "2026-03-04" and "2026-03-04T00:00:00Z" compare equal. */
+function incidentDay(value: string | null | undefined): string | null {
+  const match = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/)
+  return match ? match[1] : null
+}
+
+export function incidentDateFromFacts(facts: unknown): string | null {
+  try {
+    const parsed = typeof facts === 'string' ? JSON.parse(facts) : facts
+    const date = (parsed as { incident?: { date?: unknown } } | null)?.incident?.date
+    return typeof date === 'string' ? date : null
+  } catch {
+    return null
+  }
 }
